@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-const windows = 2
+const windows = 1
 
 type RateLimit struct {
 	Period time.Duration
