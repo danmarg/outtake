@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"time"
 
@@ -15,9 +16,15 @@ import (
 func getOAuthClient(ctx context.Context, cfg *oauth2.Config) (*oauth2.Token, error) {
 	tok := new(oauth2.Token)
 	// Have to get a new token.
-	print("Launching browser for OAuth exchange. To skip, rerun with environment variable 'OAUTH' set to 'NOBROWSER'.\n")
-	code, err := tokenFromWeb(ctx, cfg)
-	if err != nil {
+	browser := os.Getenv("OAUTH") != "NOBROWSER"
+	code := ""
+	var err error
+	if browser {
+		print("Launching browser for OAuth exchange. To skip, rerun with environment variable 'OAUTH' set to 'NOBROWSER'.\n")
+		code, err = tokenFromWeb(ctx, cfg)
+	}
+	if err != nil || !browser {
+		// Fall back to non-browser auth by rewriting the redirect URL and reading the auth code from stdin.
 		cfg.RedirectURL = "urn:ietf:wg:oauth:2.0:oob"
 		authURL := cfg.AuthCodeURL("")
 		fmt.Printf("Authorize this app at %s and paste the authorization code.\n> ", authURL)
