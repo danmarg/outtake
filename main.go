@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/codegangsta/cli"
 	"github.com/danmarg/outtake/lib"
+	"github.com/danmarg/outtake/lib/gmail"
 	"os"
 	"time"
 )
@@ -50,7 +51,7 @@ func main() {
 			fmt.Println("Error: %d exists and is not a directory", d)
 			return
 		}
-		g, err := lib.NewGmail(d, ctx.String("label"))
+		g, err := gmail.NewGmail(d, ctx.String("label"))
 		if err != nil {
 			fmt.Println("Error: ", err)
 			return

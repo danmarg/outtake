@@ -1,15 +1,9 @@
-package lib
+package gmail
 
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/binary"
-	"encoding/gob"
 	"errors"
-	"github.com/danmarg/outtake/lib/maildir"
-	gmail "github.com/google/google-api-go-client/gmail/v1"
-	"golang.org/x/net/context"
-	"golang.org/x/oauth2"
 	"io"
 	"log"
 	"net/mail"
@@ -18,20 +12,18 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/danmarg/outtake/lib"
+	"github.com/danmarg/outtake/lib/maildir"
+	"github.com/danmarg/outtake/lib/oauth"
+	gmail "github.com/google/google-api-go-client/gmail/v1"
+	"golang.org/x/net/context"
+	"golang.org/x/oauth2"
 )
 
 const (
-	// Oauth client ID.
-	clientId = "457311175792-n3hpckfadgri6opat70c8an1fmhmaev7.apps.googleusercontent.com"
-	// Oauth client secret.
-	secret = "GOylH6-BUUQFm_lzrhXKpdac"
 	// What X- header to use for storing labels.
 	labelsHeader = "X-Keywords"
-	// Cache key prefixes.
-	midToKey     = "mid_to_key"
-	midToLabels  = "mid_to_label"
-	historyIndex = "history_index"
-	oauthToken   = "oauth_token"
 	// Cache filename.
 	cacheFile = ".outtake"
 	// Parallelism.
@@ -51,11 +43,11 @@ var (
 type Gmail struct {
 	label    string
 	labelId  string
-	cache    Cache
+	cache    gmailCache
 	svc      *gmail.UsersService
 	dir      maildir.Maildir
-	progress chan<- Progress
-	limiter  RateLimit
+	progress chan<- lib.Progress
+	limiter  lib.RateLimit
 }
 
 // Creates a new Gmail synchronizer.
@@ -64,39 +56,29 @@ func NewGmail(dir string, label string) (*Gmail, error) {
 		label: label,
 	}
 	f := path.Join(dir, cacheFile)
-	if c, err := NewBoltCache(f); err != nil {
+	if c, err := lib.NewBoltCache(f); err != nil {
 		return nil, err
 	} else {
-		g.cache = c
+		g.cache = gmailCache{c}
 	}
 	cfg := &oauth2.Config{
-		ClientID:     clientId,
-		ClientSecret: secret,
+		ClientID:     oauth.ClientId,
+		ClientSecret: oauth.Secret,
 		Scopes:       []string{gmail.GmailReadonlyScope},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://accounts.google.com/o/oauth2/auth",
 			TokenURL: "https://accounts.google.com/o/oauth2/token",
 		},
 	}
-	var tok *oauth2.Token
-	if bs, ok := g.cache.Get(oauthToken, "0"); ok {
-		if err := gob.NewDecoder(bytes.NewBuffer(bs)).Decode(&tok); err != nil {
-			return nil, err
-		}
-	}
-	if tok == nil {
+	tok, ok := g.cache.GetOauthToken()
+	if !ok {
 		// TODO: should we use a client-specified context here?
 		var err error
-		tok, err = getOAuthClient(context.TODO(), cfg)
+		tok, err = oauth.GetOAuthClient(context.TODO(), cfg)
 		if err != nil {
 			return nil, err
 		}
-		// Cache the token.
-		bs := new(bytes.Buffer)
-		if err := gob.NewEncoder(bs).Encode(tok); err != nil {
-			return nil, err
-		}
-		g.cache.Set(oauthToken, "0", bs.Bytes())
+		g.cache.SetOauthToken(tok)
 	}
 	clt := cfg.Client(oauth2.NoContext, tok)
 	if c, err := gmail.New(clt); err != nil {
@@ -104,7 +86,7 @@ func NewGmail(dir string, label string) (*Gmail, error) {
 	} else {
 		g.svc = gmail.NewUsersService(c)
 	}
-	g.limiter = RateLimit{Period: time.Second, Rate: maxQps}
+	g.limiter = lib.RateLimit{Period: time.Second, Rate: maxQps}
 	if d, err := maildir.Create(dir); err != nil {
 		return nil, err
 	} else {
@@ -127,36 +109,8 @@ func (g *Gmail) getMaildirMessage(k maildir.Key) (*mail.Message, io.ReadCloser, 
 	return m, f, err
 }
 
-func (g *Gmail) getMsgKey(m string) (maildir.Key, bool) {
-	k, ok := g.cache.Get(midToKey, m)
-	if !ok {
-		return "", false
-	}
-	return maildir.Key(k), ok
-}
-
-func (g *Gmail) getCachedLabels(m string) ([]string, bool) {
-	ls := []string{}
-	bls, ok := g.cache.Get(midToLabels, m)
-	if !ok {
-		return ls, false
-	}
-	if err := gob.NewDecoder(bytes.NewBuffer(bls)).Decode(&ls); err != nil {
-		panic(err)
-	}
-	return ls, ok
-}
-
-func (g *Gmail) setCachedLabels(m string, ls []string) {
-	bls := new(bytes.Buffer)
-	if err := gob.NewEncoder(bls).Encode(ls); err != nil {
-		panic(err)
-	}
-	g.cache.Set(midToLabels, m, bls.Bytes())
-}
-
 func (g *Gmail) addMessage(m string) error {
-	if _, ok := g.getMsgKey(m); ok {
+	if _, ok := g.cache.GetMsgKey(m); ok {
 		// Already exists.
 		return alreadyExists
 	}
@@ -186,31 +140,30 @@ func (g *Gmail) addMessage(m string) error {
 		return err
 	}
 	// Update the cache.
-	g.setCachedLabels(m, labels.LabelIds)
-	g.cache.Set(midToKey, m, []byte(k))
+	g.cache.SetMsgLabels(m, labels.LabelIds)
+	g.cache.SetMsgKey(m, k)
 	return nil
 }
 
 func (g *Gmail) delMessage(m string) error {
-	k, ok := g.getMsgKey(m)
+	k, ok := g.cache.GetMsgKey(m)
 	if !ok {
 		return unknownMessage
 	}
 	if err := g.dir.Delete(k); err != nil {
 		return err
 	}
-	g.cache.Del(midToKey, m)
-	g.cache.Del(midToLabels, m)
+	g.cache.DelMsg(m)
 	return nil
 }
 
 func (g *Gmail) addLabels(m string, labels []string) error {
-	k, ok := g.getMsgKey(m)
+	k, ok := g.cache.GetMsgKey(m)
 	if !ok {
 		return unknownMessage
 	}
 	// Check that the labels actually changed.
-	old, ok := g.getCachedLabels(m)
+	old, ok := g.cache.GetMsgLabels(m)
 	if ok {
 		sort.Strings(old)
 		sort.Strings(labels)
@@ -240,8 +193,8 @@ func (g *Gmail) addLabels(m string, labels []string) error {
 		return err
 	}
 	// Update the cache.
-	g.setCachedLabels(m, labels)
-	g.cache.Set(midToKey, m, []byte(kn))
+	g.cache.SetMsgLabels(m, labels)
+	g.cache.SetMsgKey(m, kn)
 	// Delete the old message
 	if err := g.dir.Delete(k); err != nil {
 		return err
@@ -250,12 +203,12 @@ func (g *Gmail) addLabels(m string, labels []string) error {
 }
 
 func (g *Gmail) delLabels(m string, labels []string) error {
-	k, ok := g.getMsgKey(m)
+	k, ok := g.cache.GetMsgKey(m)
 	if !ok {
 		return unknownMessage
 	}
 	// Check that the labels actually changed.
-	old, ok := g.getCachedLabels(m)
+	old, ok := g.cache.GetMsgLabels(m)
 	if !ok {
 		return nil
 	}
@@ -288,8 +241,8 @@ func (g *Gmail) delLabels(m string, labels []string) error {
 		return err
 	}
 	// Update the cache.
-	g.setCachedLabels(m, ls)
-	g.cache.Set(midToKey, m, []byte(kn))
+	g.cache.SetMsgLabels(m, ls)
+	g.cache.SetMsgKey(m, kn)
 	// Delete the old message
 	if err := g.dir.Delete(k); err != nil {
 		return err
@@ -298,12 +251,12 @@ func (g *Gmail) delLabels(m string, labels []string) error {
 }
 
 func (g *Gmail) setLabels(m string, labels []string) error {
-	k, ok := g.getMsgKey(m)
+	k, ok := g.cache.GetMsgKey(m)
 	if !ok {
 		return unknownMessage
 	}
 	// Check that the labels actually changed.
-	old, ok := g.getCachedLabels(m)
+	old, ok := g.cache.GetMsgLabels(m)
 	if !ok {
 		return nil
 	}
@@ -332,8 +285,8 @@ func (g *Gmail) setLabels(m string, labels []string) error {
 		return err
 	}
 	// Update the cache.
-	g.setCachedLabels(m, labels)
-	g.cache.Set(midToKey, m, []byte(k))
+	g.cache.SetMsgLabels(m, labels)
+	g.cache.SetMsgKey(m, k)
 	return nil
 
 }
@@ -366,18 +319,17 @@ func (g *Gmail) processFullMessageList(ms <-chan string) (uint64, error) {
 func (g *Gmail) processDeletes(seen map[string]struct{}) error {
 	// Now do implicit deletes.
 	is := make(chan string)
-	go g.cache.Items(midToKey, is)
+	go g.cache.GetMsgs(is)
 	for m := range is {
 		if _, ok := seen[m]; !ok {
-			k, ok := g.getMsgKey(m)
+			k, ok := g.cache.GetMsgKey(m)
 			if !ok {
 				return errors.New("cache inconsistency!")
 			}
 			if err := g.dir.Delete(k); err != nil {
 				return err
 			}
-			g.cache.Del(midToKey, m)
-			g.cache.Del(midToLabels, m)
+			g.cache.DelMsg(m)
 		}
 	}
 	return nil
@@ -413,22 +365,23 @@ func (g *Gmail) incremental(historyId uint64) error {
 				// Do adds, etc.
 				for _, m := range h.MessagesAdded {
 					if err := g.addMessage(m.Message.Id); err != nil {
-						log.Println(err)
+						log.Println("Add message: ", m, err)
 					}
 				}
 				for _, m := range h.MessagesDeleted {
-					if err := g.delMessage(m.Message.Id); err != nil {
-						log.Println(err)
+					if err := g.delMessage(m.Message.Id); err != nil && err != unknownMessage {
+						// We can get an "unknown message" error if something we never downloaded is deleted--like a draft or a chat.
+						log.Println("Delete message: ", m, err)
 					}
 				}
 				for _, m := range h.LabelsAdded {
 					if err := g.addLabels(m.Message.Id, m.LabelIds); err != nil {
-						log.Println(err)
+						log.Println("Add label: ", m, err)
 					}
 				}
 				for _, m := range h.LabelsRemoved {
 					if err := g.delLabels(m.Message.Id, m.LabelIds); err != nil {
-						log.Println(err)
+						log.Println("Delete label: ", m, err)
 					}
 				}
 			}
@@ -452,16 +405,14 @@ func (g *Gmail) incremental(historyId uint64) error {
 				historyId = m.Id
 			}
 			ms <- m
-			g.progress <- Progress{Current: i, Total: t}
+			g.progress <- lib.Progress{Current: i, Total: t}
 			i++
 		}
 		if page == "" {
 			break
 		}
 	}
-	b := make([]byte, 8)
-	binary.PutUvarint(b, historyId)
-	g.cache.Set(historyIndex, "0", b)
+	g.cache.SetHistoryIdx(historyId)
 	return nil
 }
 
@@ -500,7 +451,7 @@ func (g *Gmail) full() error {
 		for _, m := range r.Messages {
 			ms <- m.Id
 			seen[m.Id] = struct{}{}
-			g.progress <- Progress{Current: i, Total: t}
+			g.progress <- lib.Progress{Current: i, Total: t}
 			i++
 		}
 		if page == "" {
@@ -518,13 +469,11 @@ func (g *Gmail) full() error {
 	if err := g.processDeletes(seen); err != nil {
 		return err
 	}
-	b := make([]byte, 8)
-	binary.PutUvarint(b, historyId)
-	g.cache.Set(historyIndex, "0", b)
+	g.cache.SetHistoryIdx(historyId)
 	return nil
 }
 
-func (g *Gmail) Sync(full bool, progress chan<- Progress) error {
+func (g *Gmail) Sync(full bool, progress chan<- lib.Progress) error {
 	g.progress = progress
 	g.limiter.Start()
 	if g.label != "" {
@@ -535,11 +484,7 @@ func (g *Gmail) Sync(full bool, progress chan<- Progress) error {
 		}
 	}
 	// Get the cached history index.
-	hidx := uint64(0)
-	if b, ok := g.cache.Get(historyIndex, "0"); ok {
-		hidx, _ = binary.Uvarint(b)
-	}
-	if hidx > 0 && !full {
+	if hidx := g.cache.GetHistoryIdx(); hidx > 0 && !full {
 		if err := g.incremental(hidx); err != nil {
 			if err == fullSyncRequired {
 				log.Println("History token expired--falling back to full sync")

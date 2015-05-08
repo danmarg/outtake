@@ -1,4 +1,5 @@
-package lib
+// Package oauth implements a convenience function for doing the Oauth exchange.
+package oauth
 
 import (
 	"fmt"
@@ -13,7 +14,14 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func getOAuthClient(ctx context.Context, cfg *oauth2.Config) (*oauth2.Token, error) {
+const (
+	// Oauth client ID.
+	ClientId = "457311175792-n3hpckfadgri6opat70c8an1fmhmaev7.apps.googleusercontent.com"
+	// Oauth client secret.
+	Secret = "GOylH6-BUUQFm_lzrhXKpdac"
+)
+
+func GetOAuthClient(ctx context.Context, cfg *oauth2.Config) (*oauth2.Token, error) {
 	tok := new(oauth2.Token)
 	// Have to get a new token.
 	browser := os.Getenv("OAUTH") != "NOBROWSER"
