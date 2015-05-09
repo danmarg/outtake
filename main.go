@@ -48,7 +48,7 @@ func main() {
 			fmt.Println("Error: ", err)
 			return
 		} else if !s.IsDir() {
-			fmt.Println("Error: %d exists and is not a directory", d)
+			fmt.Printf("Error: %d exists and is not a directory\n", d)
 			return
 		}
 		g, err := gmail.NewGmail(d, ctx.String("label"))
