@@ -2,7 +2,6 @@ package lib
 
 import (
 	"github.com/boltdb/bolt"
-	"sync"
 )
 
 type Cache interface {
@@ -70,13 +69,11 @@ func (c BoltCache) Del(ns, k string) {
 }
 
 func (c BoltCache) Items(ns string, ks chan<- string) {
-	wg := sync.WaitGroup{}
-	wg.Add(1)
 	go func() {
+		defer close(ks)
 		if err := c.db.View(func(tx *bolt.Tx) error {
 			b := tx.Bucket([]byte(ns))
 			if b == nil {
-				close(ks)
 				return nil
 			}
 			return b.ForEach(func(k, _ []byte) error {
@@ -86,8 +83,5 @@ func (c BoltCache) Items(ns string, ks chan<- string) {
 		}); err != nil {
 			panic(err)
 		}
-		wg.Done()
 	}()
-	wg.Wait()
-	close(ks)
 }
