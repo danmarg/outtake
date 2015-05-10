@@ -53,7 +53,7 @@ func Create(dir string) (Maildir, error) {
 // Deliver delivers the Message to the "new" maildir.
 func (d Maildir) Deliver(m *mail.Message) (Key, error) {
 	k := strconv.FormatInt(time.Now().Unix(), 10) + "."
-	k += strconv.FormatInt(int64(pid), 10) + "_" + "_" + strconv.FormatUint(atomic.AddUint64(&cntr, 1), 10)
+	k += strconv.FormatInt(int64(pid), 10) + "_" + strconv.FormatUint(atomic.AddUint64(&cntr, 1), 10)
 	k += "." + hostname
 	key := Key(k)
 	f, err := os.Create(path.Join(d.dir, tmp, k))
