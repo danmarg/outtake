@@ -52,6 +52,7 @@ const (
 	// Parallelism.
 	messageBufferSize   = 128
 	concurrentDownloads = 8
+	maxQps              = 240
 )
 
 var (
