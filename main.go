@@ -24,7 +24,7 @@ func main() {
 			Name:  "directory",
 			Usage: "Maildir to output to.",
 		},
-		cli.StringFlag{
+		cli.BoolFlag{
 			Name:  "full",
 			Usage: "Force a full sync",
 		},
