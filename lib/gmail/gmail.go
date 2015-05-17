@@ -245,10 +245,10 @@ func (g *Gmail) writeLabels(id string, labels []string) error {
 		return unknownMessage
 	}
 	msg, c, err := g.getMaildirMessage(k)
-	defer c.Close()
 	if err != nil {
 		return err
 	}
+	defer c.Close()
 	msg.Header[labelsHeader] = labels
 	// Note that this will mark a message as "new" for any clients. This might be undesirable if only labels have changed?
 	kn, err := g.dir.Deliver(msg)
@@ -435,7 +435,9 @@ func (g *Gmail) incremental(historyId uint64) error {
 	i := uint(0)
 	for o := range ops {
 		// Update progress bar.
-		g.progress <- lib.Progress{Current: i, Total: t}
+		if g.progress != nil {
+			g.progress <- lib.Progress{Current: i, Total: t}
+		}
 		i++
 		if o.Error != nil {
 			return o.Error
@@ -514,7 +516,9 @@ func (g *Gmail) full() error {
 	i := uint(0) // For updating progress bar.
 	for o := range ops {
 		// Update progress bar.
-		g.progress <- lib.Progress{Current: i, Total: t}
+		if g.progress != nil {
+			g.progress <- lib.Progress{Current: i, Total: t}
+		}
 		i++
 		if o.Error != nil {
 			return o.Error
