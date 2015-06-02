@@ -242,7 +242,8 @@ func (g *Gmail) writeLabels(id string, labels []string) error {
 	k, ok := g.cache.GetMsgKey(id)
 	if !ok {
 		log.Println("unknown message", id, "for write labels")
-		return unknownMessage
+		// XXX: Seems the API gives us label changes for messages we've never seen before that don't current exist. Dunno why.
+		return nil //unknownMessage
 	}
 	msg, c, err := g.getMaildirMessage(k)
 	if err != nil {
