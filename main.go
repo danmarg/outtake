@@ -69,6 +69,7 @@ func main() {
 		}()
 		if err := g.Sync(ctx.Bool("full"), progress); err != nil {
 			fmt.Println(err)
+			os.Exit(-1)
 		}
 
 	}
