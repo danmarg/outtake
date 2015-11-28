@@ -32,6 +32,16 @@ func main() {
 			Name:  "label",
 			Usage: "Label to sync",
 		},
+		cli.IntFlag{
+			Name:  "buffer",
+			Usage: "Download buffer size",
+			Value: 128,
+		},
+		cli.IntFlag{
+			Name:  "parallel",
+			Usage: "Max parallel downloads",
+			Value: 8,
+		},
 	}
 	app.Action = func(ctx *cli.Context) {
 		d := ctx.String("directory")
@@ -52,6 +62,8 @@ func main() {
 			return
 		}
 		g, err := gmail.NewGmail(d, ctx.String("label"))
+		gmail.MessageBufferSize = ctx.Int("buffer")
+		gmail.ConcurrentDownloads = ctx.Int("parallel")
 		if err != nil {
 			fmt.Println("Error: ", err)
 			return

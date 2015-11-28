@@ -49,15 +49,15 @@ const (
 	labelsHeader = "X-Keywords"
 	// Cache filename.
 	cacheFile = ".outtake"
-	// Parallelism.
-	messageBufferSize   = 128
-	concurrentDownloads = 8
 )
 
 var (
 	// Errors.
 	unknownMessage   = errors.New("unknown message")
 	fullSyncRequired = errors.New("full sync required")
+	// Parallelism.
+	MessageBufferSize   = 128
+	ConcurrentDownloads = 8
 )
 
 // Gmail represents a Gmail client.
@@ -319,7 +319,7 @@ func (g *Gmail) handleNewMsg(id string) msgOp {
 
 func shardForMsgId(id string) int {
 	shard, _ := strconv.ParseUint(id, 16, 64)
-	shard = shard % uint64(concurrentDownloads)
+	shard = shard % uint64(ConcurrentDownloads)
 	return int(shard)
 }
 
@@ -330,13 +330,13 @@ func (g *Gmail) incremental(historyId uint64) error {
 	// history events. We can thus guarantee that all history events for a single
 	// message ID are handled by the same shard, and thus their resulting
 	// mailbox operations will be enqueued into "ops" in order.
-	histEvents := make([]chan msgOp, concurrentDownloads)
+	histEvents := make([]chan msgOp, ConcurrentDownloads)
 	for i := 0; i < len(histEvents); i++ {
-		histEvents[i] = make(chan msgOp, messageBufferSize)
+		histEvents[i] = make(chan msgOp, MessageBufferSize)
 	}
-	ops := make(chan msgOp, messageBufferSize)
+	ops := make(chan msgOp, MessageBufferSize)
 
-	// Process new messages. This spins off concurrentDownloads goroutines that
+	// Process new messages. This spins off ConcurrentDownloads goroutines that
 	// download message bodies and labels.
 	// Because a sequence of history events might look like:
 	//    1. add message 0x123
@@ -344,9 +344,9 @@ func (g *Gmail) incremental(historyId uint64) error {
 	// it's important that all events for message 0x123 be processed sequentially.
 	// We do that by sharding history events by message ID, so that the same
 	// goroutine always gets the same messages. So to do that, we have to have
-	// "concurrentDownloads" channels, one for each goroutine.
+	// "ConcurrentDownloads" channels, one for each goroutine.
 	wg := sync.WaitGroup{}
-	for i := 0; i < concurrentDownloads; i++ {
+	for i := 0; i < ConcurrentDownloads; i++ {
 		idx := i
 		wg.Add(1)
 		go func() {
@@ -475,10 +475,10 @@ func (g *Gmail) writeOperation(o msgOp) error {
 func (g *Gmail) full() error {
 	log.Println("Performing full sync.")
 	// XXX: -in:chats to skip chats that aren't MIME messages.
-	newMsgs := make(chan string, messageBufferSize)
-	ops := make(chan msgOp, messageBufferSize)
+	newMsgs := make(chan string, MessageBufferSize)
+	ops := make(chan msgOp, MessageBufferSize)
 	wg := sync.WaitGroup{}
-	for i := 0; i < concurrentDownloads; i++ {
+	for i := 0; i < ConcurrentDownloads; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
