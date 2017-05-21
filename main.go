@@ -17,7 +17,7 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "outtake"
 	app.Usage = "Export Gmail to Maildir...efficiently!"
-	app.Version = "0.0.1"
+	app.Version = "0.0.2"
 	app.Author = "dan@af0.net"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -31,6 +31,10 @@ func main() {
 		cli.StringFlag{
 			Name:  "label",
 			Usage: "Label to sync",
+		},
+		cli.StringSliceFlag{
+			Name:  "exclude_label",
+			Usage: "Skip messages with these labels if present",
 		},
 		cli.IntFlag{
 			Name:  "buffer",
@@ -61,7 +65,7 @@ func main() {
 			fmt.Printf("Error: %d exists and is not a directory\n", d)
 			return
 		}
-		g, err := gmail.NewGmail(d, ctx.String("label"))
+		g, err := gmail.NewGmail(d, ctx.String("label"), ctx.StringSlice("exclude_label"))
 		gmail.MessageBufferSize = ctx.Int("buffer")
 		gmail.ConcurrentDownloads = ctx.Int("parallel")
 		if err != nil {
