@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/codegangsta/cli"
 	"github.com/danmarg/outtake/lib"
 	"github.com/danmarg/outtake/lib/gmail"
+	"github.com/urfave/cli"
 	"os"
 	"time"
 )
