@@ -35,6 +35,7 @@ func init() {
 // Key is a key of a maildir message.
 type Key string
 
+// Maildir is a single maildir directory.
 type Maildir struct {
 	dir string
 }
