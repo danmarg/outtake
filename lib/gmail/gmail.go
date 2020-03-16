@@ -62,18 +62,20 @@ var (
 
 // Gmail represents a Gmail client.
 type Gmail struct {
-	label    string
-	labelId  string
-	cache    gmailCache
-	svc      gmailService
-	dir      maildir.Maildir
-	progress chan<- lib.Progress
+	label         string
+	labelId       string
+	excludeLabels []string
+	cache         gmailCache
+	svc           gmailService
+	dir           maildir.Maildir
+	progress      chan<- lib.Progress
 }
 
 // Creates a new Gmail synchronizer.
-func NewGmail(dir string, label string) (*Gmail, error) {
+func NewGmail(dir string, label string, excludedLabels []string) (*Gmail, error) {
 	g := Gmail{
-		label: label,
+		label:         label,
+		excludeLabels: excludedLabels,
 	}
 	f := path.Join(dir, cacheFile)
 	if c, err := lib.NewBoltCache(f); err != nil {
@@ -299,6 +301,14 @@ func (g *Gmail) handleNewMsg(id string) msgOp {
 	if err := g.getMetaData(&o); err != nil {
 		o.Error = err
 		return o
+	}
+	for _, el := range g.excludeLabels {
+		for _, ml := range o.Labels {
+			if ml == el {
+				// Skip messages with excluded labels.
+				return o
+			}
+		}
 	}
 	if g.labelsChanged(id, o.Labels) && exists {
 		// Have to fetch body.
