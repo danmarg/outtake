@@ -57,7 +57,7 @@ func main() {
 		} else if err != nil {
 			return err
 		} else if !s.IsDir() {
-			return fmt.Errorf("Error: %d exists and is not a directory\n", d)
+			return fmt.Errorf("Error: %v exists and is not a directory\n", d)
 		}
 		g, err := gmail.NewGmail(d, ctx.String("label"))
 		gmail.MessageBufferSize = ctx.Int("buffer")
