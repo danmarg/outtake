@@ -28,6 +28,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net/http"
 	"net/mail"
 	"os"
 	"path"
@@ -60,6 +61,30 @@ var (
 	ConcurrentDownloads = 8
 )
 
+func newClient(g *Gmail) (*http.Client, error) {
+	cfg := &oauth2.Config{
+		ClientID:     oauth.ClientId,
+		ClientSecret: oauth.Secret,
+		Scopes:       []string{gmail.GmailReadonlyScope},
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://accounts.google.com/o/oauth2/auth",
+			TokenURL: "https://accounts.google.com/o/oauth2/token",
+		},
+	}
+	tok, ok := g.cache.GetOauthToken()
+	if !ok {
+		// XXX: should we use a client-specified context here?
+		var err error
+		tok, err = oauth.GetOAuthClient(context.TODO(), cfg)
+		if err != nil {
+			return nil, err
+		}
+		g.cache.SetOauthToken(tok)
+	}
+	clt := cfg.Client(oauth2.NoContext, tok)
+	return clt, nil
+}
+
 // Gmail represents a Gmail client.
 type Gmail struct {
 	label    string
@@ -81,26 +106,10 @@ func NewGmail(dir string, label string) (*Gmail, error) {
 	} else {
 		g.cache = gmailCache{c}
 	}
-	cfg := &oauth2.Config{
-		ClientID:     oauth.ClientId,
-		ClientSecret: oauth.Secret,
-		Scopes:       []string{gmail.GmailReadonlyScope},
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  "https://accounts.google.com/o/oauth2/auth",
-			TokenURL: "https://accounts.google.com/o/oauth2/token",
-		},
+	clt, err := newClient(&g)
+	if err != nil {
+		return nil, err
 	}
-	tok, ok := g.cache.GetOauthToken()
-	if !ok {
-		// XXX: should we use a client-specified context here?
-		var err error
-		tok, err = oauth.GetOAuthClient(context.TODO(), cfg)
-		if err != nil {
-			return nil, err
-		}
-		g.cache.SetOauthToken(tok)
-	}
-	clt := cfg.Client(oauth2.NoContext, tok)
 	if c, err := gmail.New(clt); err != nil {
 		return nil, err
 	} else {
