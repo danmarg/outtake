@@ -59,7 +59,7 @@ func main() {
 		} else if !s.IsDir() {
 			return fmt.Errorf("Error: %v exists and is not a directory\n", d)
 		}
-		g, err := gmail.NewGmail(d, ctx.String("label"))
+		g, err := gmail.NewGmail(d, ctx.String("label"), "", "")
 		gmail.MessageBufferSize = ctx.Int("buffer")
 		gmail.ConcurrentDownloads = ctx.Int("parallel")
 		if err != nil {

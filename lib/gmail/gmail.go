@@ -27,6 +27,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/mail"
@@ -41,6 +42,7 @@ import (
 	"github.com/danmarg/outtake/lib/oauth"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 	gmail "google.golang.org/api/gmail/v1"
 	"google.golang.org/api/googleapi"
 )
@@ -61,7 +63,29 @@ var (
 	ConcurrentDownloads = 8
 )
 
-func newClient(g *Gmail) (*http.Client, error) {
+// This function creates a JWT (JSON Web Token) HTTP client using a JSON
+// key file with the ability to impersonate any given gmail user of the
+// domain.
+func newJWTClient(serviceAccountJSONFile string, toImpersonate string) (*http.Client, error) {
+	// Read the JSON account file content.
+	data, err := ioutil.ReadFile(serviceAccountJSONFile)
+	if err != nil {
+		return nil, err
+	}
+	// Create a JWT configuration object asking for Gmail read only access.
+	config, err := google.JWTConfigFromJSON(data, gmail.GmailReadonlyScope)
+	if err != nil {
+		return nil, err
+	}
+	// Add email to impersonate to the JWT configuration.
+	// Note: this is a NOP if toImpersonate is an empty string.
+	config.Subject = toImpersonate
+	// Create the http client and return it.
+	client := config.Client(oauth2.NoContext)
+	return client, nil
+}
+
+func newOAuthClient(g *Gmail) (*http.Client, error) {
 	cfg := &oauth2.Config{
 		ClientID:     oauth.ClientId,
 		ClientSecret: oauth.Secret,
@@ -96,7 +120,7 @@ type Gmail struct {
 }
 
 // Creates a new Gmail synchronizer.
-func NewGmail(dir string, label string) (*Gmail, error) {
+func NewGmail(dir string, label string, serviceAccountJSONFile string, toImpersonate string) (*Gmail, error) {
 	g := Gmail{
 		label: label,
 	}
@@ -106,7 +130,15 @@ func NewGmail(dir string, label string) (*Gmail, error) {
 	} else {
 		g.cache = gmailCache{c}
 	}
-	clt, err := newClient(&g)
+	var clt *http.Client
+	var err error
+	if len(serviceAccountJSONFile) != 0 {
+		// Use a JSON key file.
+		clt, err = newJWTClient(serviceAccountJSONFile, toImpersonate)
+	} else {
+		// Regular Web authentication.
+		clt, err = newOAuthClient(&g)
+	}
 	if err != nil {
 		return nil, err
 	}
