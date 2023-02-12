@@ -31,6 +31,14 @@ func main() {
 			Usage: "Force a full sync",
 		},
 		&cli.StringFlag{
+			Name:  "to-impersonate",
+			Usage: "The domain user that must be impersonated.",
+		},
+		&cli.StringFlag{
+			Name:  "service-account-json-file",
+			Usage: "The JWT service account JSON file to use for authentication.",
+		},
+		&cli.StringFlag{
 			Name:  "label",
 			Usage: "Label to sync",
 		},
@@ -59,7 +67,10 @@ func main() {
 		} else if !s.IsDir() {
 			return fmt.Errorf("Error: %v exists and is not a directory\n", d)
 		}
-		g, err := gmail.NewGmail(d, ctx.String("label"))
+		g, err := gmail.NewGmail(d, ctx.String("label"), ctx.String("service-account-json-file"), ctx.String("to-impersonate"))
+		if err != nil {
+			return err
+		}
 		gmail.MessageBufferSize = ctx.Int("buffer")
 		gmail.ConcurrentDownloads = ctx.Int("parallel")
 		if err != nil {
@@ -82,5 +93,8 @@ func main() {
 		}
 		return nil
 	}
-	app.Run(os.Args)
+	if err := app.Run(os.Args); err != nil {
+		fmt.Println(err)
+		os.Exit(-1)
+	}
 }
