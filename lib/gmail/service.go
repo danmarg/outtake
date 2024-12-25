@@ -47,7 +47,8 @@ func isRateLimited(err error) (error, bool) {
 	e, ok := err.(*googleapi.Error)
 	return err, !(ok && (e.Code == 429 ||
 		// See https://developers.google.com/gmail/api/guides/handle-errors
-		(e.Code == 403 && strings.Contains(e.Message, "Rate Limit"))))
+		(e.Code == 403 && (strings.Contains(strings.ToLower(e.Message), "rate limit") ||
+			strings.Contains(strings.ToLower(e.Message), "quota exceeded")))))
 }
 
 func (s *restGmailService) GetRawMessage(id string) (string, error) {
