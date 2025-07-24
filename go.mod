@@ -1,13 +1,14 @@
 module github.com/danmarg/outtake
 
-go 1.21
+go 1.23.0
+
 toolchain go1.24.1
 
 require (
 	github.com/boltdb/bolt v1.3.1
 	github.com/urfave/cli/v2 v2.24.4
 	golang.org/x/net v0.33.0
-	golang.org/x/oauth2 v0.24.0
+	golang.org/x/oauth2 v0.27.0
 	google.golang.org/api v0.214.0
 )
 
