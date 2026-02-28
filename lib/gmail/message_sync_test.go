@@ -5,10 +5,11 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	_ "modernc.org/sqlite"
 	gmailapi "google.golang.org/api/gmail/v1"
+	_ "modernc.org/sqlite"
 )
 
 func seedListRows(t *testing.T, db *sql.DB, rows []listedMessage) {
@@ -116,5 +117,84 @@ func TestSyncListedMessagesResumesFromCheckpoint(t *testing.T) {
 	}
 	if _, err := g.dir.GetFile(stableArchiveKey(4, 1, "a")); err == nil {
 		t.Fatalf("did not expect message a to be re-synced")
+	}
+}
+
+func TestSyncListedMessagesMapsLabelsFromSQLite(t *testing.T) {
+	g, svc, dir := getTestClient()
+	dbPath := filepath.Join(dir, "m2_labels.db")
+	db := openTestDB(t, dbPath)
+	seedListRows(t, db, []listedMessage{{MessageID: "m1"}})
+	if _, err := db.Exec(`INSERT INTO gmail_labels(id, name, type, updatedAtMs) VALUES('Label_4','Receipts','user',1)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	raw := base64.URLEncoding.EncodeToString([]byte("From: a@b\nTo: c@d\nSubject: hi\n\nbody"))
+	svc.Msgs["m1"] = raw
+	svc.Metadata["m1"] = &gmailapi.Message{Id: "m1", LabelIds: []string{"Label_4", "INBOX"}}
+
+	db2 := openTestDB(t, dbPath)
+	defer db2.Close()
+	if err := g.SyncListedMessagesWithDB(db2); err != nil {
+		t.Fatalf("SyncListedMessagesWithDB() error = %v", err)
+	}
+
+	fn, err := g.dir.GetFile(stableArchiveKey(1, 1, "m1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(fn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	if !strings.Contains(text, "X-Keywords: Receipts") {
+		t.Fatalf("expected mapped label name in headers")
+	}
+	if !strings.Contains(text, "X-Keywords: INBOX") {
+		t.Fatalf("expected INBOX label in headers")
+	}
+}
+
+func TestSyncListedMessagesRefreshesLabelsOnUnknown(t *testing.T) {
+	g, svc, dir := getTestClient()
+	dbPath := filepath.Join(dir, "m2_labels_refresh.db")
+	db := openTestDB(t, dbPath)
+	seedListRows(t, db, []listedMessage{{MessageID: "m1"}})
+	db.Close()
+
+	raw := base64.URLEncoding.EncodeToString([]byte("From: a@b\nTo: c@d\nSubject: hi\n\nbody"))
+	svc.Msgs["m1"] = raw
+	svc.Metadata["m1"] = &gmailapi.Message{Id: "m1", LabelIds: []string{"Label_99"}}
+	svc.Labels = &gmailapi.ListLabelsResponse{Labels: []*gmailapi.Label{{Id: "Label_99", Name: "CustomLabel", Type: "user"}}}
+
+	db2 := openTestDB(t, dbPath)
+	defer db2.Close()
+	if err := g.SyncListedMessagesWithDB(db2); err != nil {
+		t.Fatalf("SyncListedMessagesWithDB() error = %v", err)
+	}
+	if svc.LabelsCallCount == 0 {
+		t.Fatalf("expected GetLabels to be called on unknown label")
+	}
+
+	fn, err := g.dir.GetFile(stableArchiveKey(1, 1, "m1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(fn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "X-Keywords: CustomLabel") {
+		t.Fatalf("expected refreshed mapped label name in message headers")
+	}
+
+	var name string
+	if err := db2.QueryRow(`SELECT name FROM gmail_labels WHERE id='Label_99'`).Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	if name != "CustomLabel" {
+		t.Fatalf("gmail_labels name = %q, expected CustomLabel", name)
 	}
 }

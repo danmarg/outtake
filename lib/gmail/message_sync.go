@@ -93,6 +93,9 @@ func (g *Gmail) SyncListedMessagesWithDB(db *sql.DB) error {
 		}
 	}()
 
+	labelsRefreshedOnMiss := false
+	var labelsRefreshMu sync.Mutex
+
 	// Workers
 	workers := ConcurrentDownloads
 	if workers < 1 {
@@ -106,7 +109,7 @@ func (g *Gmail) SyncListedMessagesWithDB(db *sql.DB) error {
 			for item := range workCh {
 				res := phase2Result{Seq: item.Seq, Msg: item.Msg}
 				currentI := alreadyDone + int(item.Seq)
-				downloadedNow, skippedNow, err := g.downloadAndWriteListedMessage(item.Msg.MessageID, total, currentI)
+				downloadedNow, skippedNow, err := g.downloadAndWriteListedMessage(db, item.Msg.MessageID, total, currentI, &labelsRefreshedOnMiss, &labelsRefreshMu)
 				if err != nil {
 					res.Failed = true
 					res.Err = err
@@ -304,7 +307,7 @@ func nextListedMessagesBatch(db *sql.DB, lastRespID int64, lastMsgID string, lim
 	return out, nil
 }
 
-func (g *Gmail) downloadAndWriteListedMessage(id string, total, currentI int) (bool, bool, error) {
+func (g *Gmail) downloadAndWriteListedMessage(db *sql.DB, id string, total, currentI int, labelsRefreshedOnMiss *bool, labelsRefreshMu *sync.Mutex) (bool, bool, error) {
 	stableKey := stableArchiveKey(total, currentI, id)
 	if _, err := g.dir.GetFile(stableKey); err == nil {
 		return false, true, nil
@@ -321,10 +324,62 @@ func (g *Gmail) downloadAndWriteListedMessage(id string, total, currentI int) (b
 		return false, false, fmt.Errorf("unexpected operation for listed message %s: %d", id, op.Operation)
 	}
 
+	mappedLabels, err := g.resolveArchivedLabels(db, op.Labels, labelsRefreshedOnMiss, labelsRefreshMu)
+	if err != nil {
+		return false, false, err
+	}
+	op.Msg.Header[labelsHeader] = mappedLabels
+
 	if _, err := g.dir.DeliverWithKey(op.Msg, stableKey); err != nil {
 		return false, false, err
 	}
 	return true, false, nil
+}
+
+func (g *Gmail) resolveArchivedLabels(db *sql.DB, ids []string, labelsRefreshedOnMiss *bool, labelsRefreshMu *sync.Mutex) ([]string, error) {
+	mapped, hadUnknown, err := resolveLabelNames(db, ids)
+	if err != nil {
+		return nil, err
+	}
+	if !hadUnknown {
+		return mapped, nil
+	}
+
+	labelsRefreshMu.Lock()
+	defer labelsRefreshMu.Unlock()
+
+	mapped, hadUnknown, err = resolveLabelNames(db, ids)
+	if err != nil {
+		return nil, err
+	}
+	if !hadUnknown {
+		return mapped, nil
+	}
+
+	if !*labelsRefreshedOnMiss {
+		if err := g.refreshLabelsInDB(db); err != nil {
+			return nil, err
+		}
+		*labelsRefreshedOnMiss = true
+	}
+	mapped, _, err = resolveLabelNames(db, ids)
+	if err != nil {
+		return nil, err
+	}
+	return mapped, nil
+}
+
+func (g *Gmail) refreshLabelsInDB(db *sql.DB) error {
+	resp, err := g.svc.GetLabels()
+	if err != nil {
+		return err
+	}
+	refreshed, err := upsertLabels(db, resp.Labels)
+	if err != nil {
+		return err
+	}
+	log.Printf("downloading-archived: labels refreshed=%d", refreshed)
+	return nil
 }
 
 func stableArchiveKey(total, currentI int, id string) maildir.Key {

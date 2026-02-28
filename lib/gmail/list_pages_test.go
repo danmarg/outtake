@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite"
 	"golang.org/x/oauth2"
 	gmailapi "google.golang.org/api/gmail/v1"
+	_ "modernc.org/sqlite"
 )
 
 func openTestDB(t *testing.T, p string) *sql.DB {
@@ -44,6 +44,8 @@ func TestEnsureListPagesSchema(t *testing.T) {
 		"gmail_users_messages_list_response_messages",
 		"gmail_users_messages_index",
 		"oauth_tokens",
+		"sync_state",
+		"gmail_labels",
 	} {
 		if countRows(t, db, "sqlite_schema WHERE type='table' AND name='"+tbl+"'") != 1 {
 			t.Fatalf("expected table %s to exist", tbl)
@@ -96,12 +98,12 @@ func TestSyncListPagesStoresAllPages(t *testing.T) {
 	dbPath := filepath.Join(dir, "list-pages.db")
 
 	svc.Messages[""] = &gmailapi.ListMessagesResponse{
-		Messages: []*gmailapi.Message{{Id: "m1", ThreadId: "t1"}},
+		Messages:           []*gmailapi.Message{{Id: "m1", ThreadId: "t1"}},
 		NextPageToken:      "p2",
 		ResultSizeEstimate: 2,
 	}
 	svc.Messages["p2"] = &gmailapi.ListMessagesResponse{
-		Messages: []*gmailapi.Message{{Id: "m2", ThreadId: "t2"}},
+		Messages:           []*gmailapi.Message{{Id: "m2", ThreadId: "t2"}},
 		NextPageToken:      "",
 		ResultSizeEstimate: 2,
 	}
@@ -127,7 +129,7 @@ func TestSyncListPagesResumesFromSyncStateCursor(t *testing.T) {
 	dbPath := filepath.Join(dir, "list-pages-state.db")
 
 	svc.Messages["p2"] = &gmailapi.ListMessagesResponse{
-		Messages: []*gmailapi.Message{{Id: "m2", ThreadId: "t2"}},
+		Messages:           []*gmailapi.Message{{Id: "m2", ThreadId: "t2"}},
 		NextPageToken:      "",
 		ResultSizeEstimate: 2,
 	}
@@ -171,7 +173,7 @@ func TestSyncListPagesResumesFromLatestRequest(t *testing.T) {
 	dbPath := filepath.Join(dir, "list-pages.db")
 
 	svc.Messages["p2"] = &gmailapi.ListMessagesResponse{
-		Messages: []*gmailapi.Message{{Id: "m2", ThreadId: "t2"}},
+		Messages:           []*gmailapi.Message{{Id: "m2", ThreadId: "t2"}},
 		NextPageToken:      "",
 		ResultSizeEstimate: 2,
 	}

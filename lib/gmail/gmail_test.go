@@ -56,13 +56,14 @@ func TestLabelsChanged(t *testing.T) {
 
 type testService struct {
 	gmailService
-	Msgs              map[string]string
-	Metadata          map[string]*gmail.Message
-	Labels            *gmail.ListLabelsResponse
-	History           map[string]*gmail.ListHistoryResponse
-	Messages          map[string]*gmail.ListMessagesResponse
-	LastHistoryStart  uint64
-	HistoryCallCount  int
+	Msgs             map[string]string
+	Metadata         map[string]*gmail.Message
+	Labels           *gmail.ListLabelsResponse
+	LabelsCallCount  int
+	History          map[string]*gmail.ListHistoryResponse
+	Messages         map[string]*gmail.ListMessagesResponse
+	LastHistoryStart uint64
+	HistoryCallCount int
 }
 
 func (s *testService) GetRawMessage(id string) (string, error) {
@@ -80,6 +81,10 @@ func (s *testService) GetMetadata(id string) (*gmail.Message, error) {
 }
 
 func (s *testService) GetLabels() (*gmail.ListLabelsResponse, error) {
+	s.LabelsCallCount++
+	if s.Labels == nil {
+		return &gmail.ListLabelsResponse{}, nil
+	}
 	return s.Labels, nil
 }
 

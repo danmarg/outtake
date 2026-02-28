@@ -67,6 +67,12 @@ func ensureListPagesSchema(db *sql.DB) error {
 			value TEXT NOT NULL,
 			updatedAtMs INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS gmail_labels (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			type TEXT,
+			updatedAtMs INTEGER NOT NULL
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
