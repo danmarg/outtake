@@ -22,6 +22,8 @@ const (
 	fullSyncStateActive   = "active"
 	fullSyncStatePage     = "page_token"
 	fullSyncStateHighHist = "highest_history"
+	fullSyncStateOpsDone  = "ops_done"
+	fullSyncStateTotalEst = "total_estimate"
 )
 
 type gmailCache struct {
@@ -157,6 +159,34 @@ func (c *gmailCache) GetFullSyncHighestHistory() uint64 {
 	return hidx
 }
 
+func (c *gmailCache) SetFullSyncOpsDone(n uint64) {
+	b := make([]byte, 8)
+	binary.PutUvarint(b, n)
+	c.Cache.Set(fullSyncState, fullSyncStateOpsDone, b)
+}
+
+func (c *gmailCache) GetFullSyncOpsDone() uint64 {
+	n := uint64(0)
+	if b, ok := c.Cache.Get(fullSyncState, fullSyncStateOpsDone); ok {
+		n, _ = binary.Uvarint(b)
+	}
+	return n
+}
+
+func (c *gmailCache) SetFullSyncTotalEstimate(n uint64) {
+	b := make([]byte, 8)
+	binary.PutUvarint(b, n)
+	c.Cache.Set(fullSyncState, fullSyncStateTotalEst, b)
+}
+
+func (c *gmailCache) GetFullSyncTotalEstimate() uint64 {
+	n := uint64(0)
+	if b, ok := c.Cache.Get(fullSyncState, fullSyncStateTotalEst); ok {
+		n, _ = binary.Uvarint(b)
+	}
+	return n
+}
+
 func (c *gmailCache) AddFullSyncSeen(id string) {
 	c.Cache.Set(fullSyncSeen, id, []byte{1})
 }
@@ -170,5 +200,7 @@ func (c *gmailCache) ClearFullSyncSession() {
 	c.SetFullSyncActive(false)
 	c.Cache.Del(fullSyncState, fullSyncStatePage)
 	c.Cache.Del(fullSyncState, fullSyncStateHighHist)
+	c.Cache.Del(fullSyncState, fullSyncStateOpsDone)
+	c.Cache.Del(fullSyncState, fullSyncStateTotalEst)
 	c.Cache.Clear(fullSyncSeen)
 }
