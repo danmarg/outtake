@@ -45,16 +45,16 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 		return err
 	}
 	if lastRespID > 0 {
-		log.Printf("phase2: resume from responseId=%d messageId=%q", lastRespID, lastMsgID)
+		log.Printf("downloading-archived: resume from responseId=%d messageId=%q", lastRespID, lastMsgID)
 	} else {
-		log.Printf("phase2: start from newest listed message")
+		log.Printf("downloading-archived: start from newest listed message")
 	}
 
 	remaining, err := countRemainingListedMessages(db, lastRespID, lastMsgID)
 	if err != nil {
 		return err
 	}
-	log.Printf("phase2: queued=%d workers=%d", remaining, ConcurrentDownloads)
+	log.Printf("downloading-archived: queued=%d workers=%d", remaining, ConcurrentDownloads)
 
 	start := time.Now()
 	lastPerfLog := time.Now()
@@ -169,7 +169,7 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 				skipped++
 			} else if curr.Failed {
 				failed++
-				log.Printf("phase2: message=%s failed: %v", curr.Msg.MessageID, curr.Err)
+				log.Printf("downloading-archived: message=%s failed: %v", curr.Msg.MessageID, curr.Err)
 			}
 
 			latestCheckpoint = curr.Msg
@@ -189,7 +189,7 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 			totalDone := downloaded + skipped + failed
 			msgPerSec := float64(totalDone) / elapsed
 			secPerMsg := elapsed / float64(maxInt(totalDone, 1))
-			log.Printf("phase2: perf done=%d downloaded=%d skipped=%d failed=%d rate=%.2f msg/s latency=%.3f s/msg",
+			log.Printf("downloading-archived: perf done=%d downloaded=%d skipped=%d failed=%d rate=%.2f msg/s latency=%.3f s/msg",
 				totalDone, downloaded, skipped, failed, msgPerSec, secPerMsg)
 			lastPerfLog = time.Now()
 		}
@@ -207,7 +207,7 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 		elapsed = 0.001
 	}
 	totalDone := downloaded + skipped + failed
-	log.Printf("phase2: complete downloaded=%d skipped=%d failed=%d elapsed=%.1fs rate=%.2f msg/s",
+	log.Printf("downloading-archived: complete downloaded=%d skipped=%d failed=%d elapsed=%.1fs rate=%.2f msg/s",
 		downloaded, skipped, failed, elapsed, float64(totalDone)/elapsed)
 	return nil
 }

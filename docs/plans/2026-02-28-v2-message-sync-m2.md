@@ -1,4 +1,4 @@
-# V2 Message Sync Milestone 2 Plan
+# V2 Milestone 2 Plan — Downloading-Archived
 
 ## Goal
 Materialize message bodies into Maildir from the message IDs already captured by Milestone 1.

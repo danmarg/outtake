@@ -1,4 +1,4 @@
-# V2 List Pages Milestone 1 Plan
+# V2 Milestone 1 Plan — Listing
 
 ## Goal
 Default v2 sync should:

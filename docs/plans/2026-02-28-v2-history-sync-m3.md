@@ -1,7 +1,12 @@
-# V2 History Sync Milestone 3 Plan
+# V2 Milestone 3 Plan — (name TBD)
 
 ## Goal
 Add history-based incremental sync so v2 can stay up to date efficiently after list/body backfill.
+
+- [ ] TODO: finalize stage name so top-level naming is consistent with:
+  1) Listing
+  2) Downloading-Archived
+  3) <final name>
 
 ## Scope
 - Use `Users.History.List` with durable cursor state in SQLite.

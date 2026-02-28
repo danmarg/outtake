@@ -32,13 +32,13 @@ func (g *Gmail) SyncListPages(dbPath string) error {
 		return err
 	}
 	if has && pageToken == "" {
-		log.Println("list-pages: already complete (latest request has empty nextPageToken)")
+		log.Println("listing: already complete (latest request has empty nextPageToken)")
 		return nil
 	}
 	if has {
-		log.Printf("list-pages: resuming from pageToken=%q", pageToken)
+		log.Printf("listing: resuming from pageToken=%q", pageToken)
 	} else {
-		log.Println("list-pages: starting from first page")
+		log.Println("listing: starting from first page")
 	}
 
 	pages := 0
@@ -122,14 +122,14 @@ func (g *Gmail) SyncListPages(dbPath string) error {
 
 		pages++
 		msgs += len(r.Messages)
-		log.Printf("list-pages: page=%d messages=%d total_messages=%d nextPageToken=%t", pages, len(r.Messages), msgs, next != "")
+		log.Printf("listing: page=%d messages=%d total_messages=%d nextPageToken=%t", pages, len(r.Messages), msgs, next != "")
 
 		if next == "" {
 			break
 		}
 		pageToken = next
 	}
-	log.Printf("list-pages: complete pages=%d total_messages=%d", pages, msgs)
+	log.Printf("listing: complete pages=%d total_messages=%d", pages, msgs)
 	return nil
 }
 
