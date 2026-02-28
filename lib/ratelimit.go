@@ -2,7 +2,6 @@ package lib
 
 import (
 	"log"
-	"math"
 	"time"
 )
 
@@ -48,6 +47,10 @@ func (r *RateLimit) TryGet() bool {
 	}
 }
 
+func backoffDuration(start time.Duration, attempt uint) time.Duration {
+	return start * time.Duration(1<<attempt)
+}
+
 func (r *RateLimit) DoWithBackoff(f func() (err error, fatal bool)) error {
 	var err error
 	var fatal bool
@@ -57,7 +60,7 @@ func (r *RateLimit) DoWithBackoff(f func() (err error, fatal bool)) error {
 		if err == nil || fatal {
 			return err
 		}
-		s := time.Duration(math.Pow(float64(r.BackoffStart.Nanoseconds()), float64(i)))
+		s := backoffDuration(r.BackoffStart, i)
 		log.Println("DoWithBackoff error: sleeping for", s)
 		time.Sleep(s)
 	}
