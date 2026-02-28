@@ -96,6 +96,26 @@ func (g *Gmail) SyncListPages(dbPath string) error {
 			}
 		}
 
+		if next == "" {
+			if err := setSyncState(tx, syncStateListDone, "1"); err != nil {
+				tx.Rollback()
+				return err
+			}
+			if err := setSyncState(tx, syncStateListNextPageToken, ""); err != nil {
+				tx.Rollback()
+				return err
+			}
+		} else {
+			if err := setSyncState(tx, syncStateListDone, "0"); err != nil {
+				tx.Rollback()
+				return err
+			}
+			if err := setSyncState(tx, syncStateListNextPageToken, next); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+
 		if err := tx.Commit(); err != nil {
 			return err
 		}

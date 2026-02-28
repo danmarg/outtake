@@ -7,8 +7,13 @@ import (
 )
 
 const (
+	syncStateListNextPageToken           = "sync.list.next_page_token"
+	syncStateListDone                    = "sync.list.done"
 	syncStateMaterializeCursorResponseID = "sync.materialize.cursor.response_id"
 	syncStateMaterializeCursorMessageID  = "sync.materialize.cursor.message_id"
+	syncStateHistoryCursorCommitted      = "sync.history.cursor.committed"
+	syncStateHistoryCursorProgress       = "sync.history.cursor.progress"
+	syncStateHistoryPageToken            = "sync.history.page_token"
 )
 
 func ensureListPagesSchema(db *sql.DB) error {
@@ -71,6 +76,18 @@ func ensureListPagesSchema(db *sql.DB) error {
 }
 
 func getResumePageToken(db *sql.DB) (string, bool, error) {
+	if done, ok, err := getSyncState(db, syncStateListDone); err != nil {
+		return "", false, err
+	} else if ok && done == "1" {
+		return "", true, nil
+	}
+	if tok, ok, err := getSyncState(db, syncStateListNextPageToken); err != nil {
+		return "", false, err
+	} else if ok {
+		return tok, true, nil
+	}
+
+	// backward-compat fallback to request-chain resume
 	var token sql.NullString
 	err := db.QueryRow(`SELECT nextPageToken FROM gmail_users_messages_list_requests ORDER BY id DESC LIMIT 1`).Scan(&token)
 	if err == sql.ErrNoRows {

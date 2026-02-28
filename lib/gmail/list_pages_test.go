@@ -113,6 +113,50 @@ func TestSyncListPagesStoresAllPages(t *testing.T) {
 	if got := countRows(t, db, "gmail_users_messages_list_requests"); got != 2 {
 		t.Fatalf("request rows = %d, expected 2", got)
 	}
+	if done, ok, err := getSyncState(db, syncStateListDone); err != nil || !ok || done != "1" {
+		t.Fatalf("sync_state done = (%q,%v,%v), expected (1,true,nil)", done, ok, err)
+	}
+}
+
+func TestSyncListPagesResumesFromSyncStateCursor(t *testing.T) {
+	g, svc, dir := getTestClient()
+	dbPath := filepath.Join(dir, "list-pages-state.db")
+
+	svc.Messages["p2"] = &gmailapi.ListMessagesResponse{
+		Messages: []*gmailapi.Message{{Id: "m2", ThreadId: "t2"}},
+		NextPageToken:      "",
+		ResultSizeEstimate: 2,
+	}
+
+	db := openTestDB(t, dbPath)
+	defer db.Close()
+	if err := ensureListPagesSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setSyncState(tx, syncStateListDone, "0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := setSyncState(tx, syncStateListNextPageToken, "p2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	if err := g.SyncListPages(dbPath); err != nil {
+		t.Fatalf("SyncListPages() error = %v", err)
+	}
+
+	db2 := openTestDB(t, dbPath)
+	defer db2.Close()
+	if got := countRows(t, db2, "gmail_users_messages_list_requests"); got != 1 {
+		t.Fatalf("request rows = %d, expected 1", got)
+	}
 }
 
 func TestSyncListPagesResumesFromLatestRequest(t *testing.T) {
