@@ -104,13 +104,13 @@ func TestSyncListedMessagesResumesFromCheckpoint(t *testing.T) {
 		t.Fatalf("SyncListedMessages() error = %v", err)
 	}
 
-	if _, ok := g.cache.GetMsgKey("c"); !ok {
-		t.Fatalf("expected message c to be synced")
+	if _, err := g.dir.GetFile(stableArchiveKey(4, 3, "c")); err != nil {
+		t.Fatalf("expected message c to be synced: %v", err)
 	}
-	if _, ok := g.cache.GetMsgKey("z"); !ok {
-		t.Fatalf("expected message z to be synced")
+	if _, err := g.dir.GetFile(stableArchiveKey(4, 4, "z")); err != nil {
+		t.Fatalf("expected message z to be synced: %v", err)
 	}
-	if _, ok := g.cache.GetMsgKey("a"); ok {
+	if _, err := g.dir.GetFile(stableArchiveKey(4, 1, "a")); err == nil {
 		t.Fatalf("did not expect message a to be re-synced")
 	}
 }

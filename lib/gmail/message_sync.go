@@ -320,12 +320,9 @@ func (g *Gmail) downloadAndWriteListedMessage(id string, total, currentI int) (b
 		return false, false, fmt.Errorf("unexpected operation for listed message %s: %d", id, op.Operation)
 	}
 
-	k, err := g.dir.DeliverWithKey(op.Msg, stableKey)
-	if err != nil {
+	if _, err := g.dir.DeliverWithKey(op.Msg, stableKey); err != nil {
 		return false, false, err
 	}
-	g.cache.SetMsgLabels(op.Id, op.Labels)
-	g.cache.SetMsgKey(op.Id, k)
 	return true, false, nil
 }
 
