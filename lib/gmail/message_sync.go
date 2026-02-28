@@ -111,19 +111,16 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 			defer wg.Done()
 			for item := range workCh {
 				res := phase2Result{Seq: item.Seq, Msg: item.Msg}
-				if _, exists := g.cache.GetMsgKey(item.Msg.MessageID); exists {
-					res.Skipped = true
-					resultCh <- res
-					continue
-				}
 				currentI := alreadyDone + int(item.Seq)
-				if err := g.downloadAndWriteListedMessage(item.Msg.MessageID, total, currentI); err != nil {
+				downloadedNow, skippedNow, err := g.downloadAndWriteListedMessage(item.Msg.MessageID, total, currentI)
+				if err != nil {
 					res.Failed = true
 					res.Err = err
 					resultCh <- res
 					continue
 				}
-				res.Downloaded = true
+				res.Downloaded = downloadedNow
+				res.Skipped = skippedNow
 				resultCh <- res
 			}
 		}()
@@ -306,30 +303,38 @@ func nextListedMessagesBatch(db *sql.DB, lastRespID int64, lastMsgID string, lim
 	return out, nil
 }
 
-func (g *Gmail) downloadAndWriteListedMessage(id string, total, currentI int) error {
-	op := g.handleNewMsg(id)
-	if op.Error != nil {
-		return op.Error
-	}
-	if op.Operation == NONE {
-		return nil
-	}
-	if op.Operation != ADD {
-		return fmt.Errorf("unexpected operation for listed message %s: %d", id, op.Operation)
+func (g *Gmail) downloadAndWriteListedMessage(id string, total, currentI int) (bool, bool, error) {
+	stableKey := stableArchiveKey(total, currentI, id)
+	if _, err := g.dir.GetFile(stableKey); err == nil {
+		return false, true, nil
 	}
 
+	op := g.handleNewMsg(id)
+	if op.Error != nil {
+		return false, false, op.Error
+	}
+	if op.Operation == NONE {
+		return false, true, nil
+	}
+	if op.Operation != ADD {
+		return false, false, fmt.Errorf("unexpected operation for listed message %s: %d", id, op.Operation)
+	}
+
+	k, err := g.dir.DeliverWithKey(op.Msg, stableKey)
+	if err != nil {
+		return false, false, err
+	}
+	g.cache.SetMsgLabels(op.Id, op.Labels)
+	g.cache.SetMsgKey(op.Id, k)
+	return true, false, nil
+}
+
+func stableArchiveKey(total, currentI int, id string) maildir.Key {
 	rank := total - currentI
 	if rank < 0 {
 		rank = 0
 	}
-	stableKey := maildir.Key(fmt.Sprintf("%09d.%s", rank, id))
-	k, err := g.dir.DeliverWithKey(op.Msg, stableKey)
-	if err != nil {
-		return err
-	}
-	g.cache.SetMsgLabels(op.Id, op.Labels)
-	g.cache.SetMsgKey(op.Id, k)
-	return nil
+	return maildir.Key(fmt.Sprintf("%09d.%s", rank, id))
 }
 
 func maxInt(a, b int) int {
