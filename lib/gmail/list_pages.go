@@ -3,6 +3,7 @@ package gmail
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -31,9 +32,17 @@ func (g *Gmail) SyncListPages(dbPath string) error {
 		return err
 	}
 	if has && pageToken == "" {
+		log.Println("list-pages: already complete (latest request has empty nextPageToken)")
 		return nil
 	}
+	if has {
+		log.Printf("list-pages: resuming from pageToken=%q", pageToken)
+	} else {
+		log.Println("list-pages: starting from first page")
+	}
 
+	pages := 0
+	msgs := 0
 	for {
 		r, err := g.svc.GetMessages(g.labelId, pageToken)
 		if err != nil {
@@ -91,11 +100,16 @@ func (g *Gmail) SyncListPages(dbPath string) error {
 			return err
 		}
 
+		pages++
+		msgs += len(r.Messages)
+		log.Printf("list-pages: page=%d messages=%d total_messages=%d nextPageToken=%t", pages, len(r.Messages), msgs, next != "")
+
 		if next == "" {
 			break
 		}
 		pageToken = next
 	}
+	log.Printf("list-pages: complete pages=%d total_messages=%d", pages, msgs)
 	return nil
 }
 
