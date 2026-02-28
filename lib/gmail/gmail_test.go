@@ -138,7 +138,7 @@ func TestHistoryIdxProgressRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSyncUsesCommittedHistoryIndex(t *testing.T) {
+func TestSyncPrefersProgressHistoryIndex(t *testing.T) {
 	c, svc, _ := getTestClient()
 	c.cache.SetHistoryIdx(10)
 	c.cache.SetHistoryIdxProgress(20)
@@ -146,8 +146,8 @@ func TestSyncUsesCommittedHistoryIndex(t *testing.T) {
 	if err := c.Sync(false, nil); err != nil {
 		t.Fatalf("Sync(false, nil) = %v, expected nil", err)
 	}
-	if svc.LastHistoryStart != 10 {
-		t.Errorf("incremental start history index = %v, expected 10", svc.LastHistoryStart)
+	if svc.LastHistoryStart != 20 {
+		t.Errorf("incremental start history index = %v, expected 20", svc.LastHistoryStart)
 	}
 	if got := c.cache.GetHistoryIdxProgress(); got != 0 {
 		t.Errorf("GetHistoryIdxProgress() after successful incremental = %v, expected 0", got)
