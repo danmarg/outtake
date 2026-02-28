@@ -48,8 +48,10 @@ func TestSyncListedMessagesWritesToMaildir(t *testing.T) {
 	svc.Metadata["m1"] = &gmailapi.Message{Id: "m1", LabelIds: []string{"INBOX"}}
 	svc.Metadata["m2"] = &gmailapi.Message{Id: "m2", LabelIds: []string{"STARRED"}}
 
-	if err := g.SyncListedMessages(dbPath); err != nil {
-		t.Fatalf("SyncListedMessages() error = %v", err)
+	db2 := openTestDB(t, dbPath)
+	defer db2.Close()
+	if err := g.SyncListedMessagesWithDB(db2); err != nil {
+		t.Fatalf("SyncListedMessagesWithDB() error = %v", err)
 	}
 
 	files, err := os.ReadDir(filepath.Join(dir, "new"))
@@ -100,8 +102,10 @@ func TestSyncListedMessagesResumesFromCheckpoint(t *testing.T) {
 	svc.Metadata["c"] = &gmailapi.Message{Id: "c"}
 	svc.Metadata["z"] = &gmailapi.Message{Id: "z"}
 
-	if err := g.SyncListedMessages(dbPath); err != nil {
-		t.Fatalf("SyncListedMessages() error = %v", err)
+	db3 := openTestDB(t, dbPath)
+	defer db3.Close()
+	if err := g.SyncListedMessagesWithDB(db3); err != nil {
+		t.Fatalf("SyncListedMessagesWithDB() error = %v", err)
 	}
 
 	if _, err := g.dir.GetFile(stableArchiveKey(4, 3, "c")); err != nil {

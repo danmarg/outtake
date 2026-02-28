@@ -7,20 +7,9 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
-	_ "modernc.org/sqlite"
 )
 
-func (g *Gmail) SyncListPages(dbPath string) error {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
-		return err
-	}
-
+func (g *Gmail) SyncListPagesWithDB(db *sql.DB) error {
 	if err := ensureListPagesSchema(db); err != nil {
 		return err
 	}

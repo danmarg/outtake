@@ -79,8 +79,10 @@ func TestSyncListPagesPersistsOAuthToken(t *testing.T) {
 	dbPath := filepath.Join(dir, "oauth.db")
 	g.cache.SetOauthToken(&oauth2.Token{AccessToken: "a", RefreshToken: "r", TokenType: "Bearer", Expiry: time.Unix(10, 0)})
 	svc.Messages[""] = &gmailapi.ListMessagesResponse{}
-	if err := g.SyncListPages(dbPath); err != nil {
-		t.Fatalf("SyncListPages() error = %v", err)
+	db2 := openTestDB(t, dbPath)
+	defer db2.Close()
+	if err := g.SyncListPagesWithDB(db2); err != nil {
+		t.Fatalf("SyncListPagesWithDB() error = %v", err)
 	}
 	db := openTestDB(t, dbPath)
 	defer db.Close()
@@ -104,8 +106,10 @@ func TestSyncListPagesStoresAllPages(t *testing.T) {
 		ResultSizeEstimate: 2,
 	}
 
-	if err := g.SyncListPages(dbPath); err != nil {
-		t.Fatalf("SyncListPages() error = %v", err)
+	db2 := openTestDB(t, dbPath)
+	defer db2.Close()
+	if err := g.SyncListPagesWithDB(db2); err != nil {
+		t.Fatalf("SyncListPagesWithDB() error = %v", err)
 	}
 
 	db := openTestDB(t, dbPath)
@@ -148,13 +152,16 @@ func TestSyncListPagesResumesFromSyncStateCursor(t *testing.T) {
 	}
 	db.Close()
 
-	if err := g.SyncListPages(dbPath); err != nil {
-		t.Fatalf("SyncListPages() error = %v", err)
-	}
-
 	db2 := openTestDB(t, dbPath)
-	defer db2.Close()
-	if got := countRows(t, db2, "gmail_users_messages_list_requests"); got != 1 {
+	if err := g.SyncListPagesWithDB(db2); err != nil {
+		db2.Close()
+		t.Fatalf("SyncListPagesWithDB() error = %v", err)
+	}
+	db2.Close()
+
+	db3 := openTestDB(t, dbPath)
+	defer db3.Close()
+	if got := countRows(t, db3, "gmail_users_messages_list_requests"); got != 1 {
 		t.Fatalf("request rows = %d, expected 1", got)
 	}
 }
@@ -180,13 +187,16 @@ func TestSyncListPagesResumesFromLatestRequest(t *testing.T) {
 	}
 	db.Close()
 
-	if err := g.SyncListPages(dbPath); err != nil {
-		t.Fatalf("SyncListPages() error = %v", err)
-	}
-
 	db2 := openTestDB(t, dbPath)
-	defer db2.Close()
-	if got := countRows(t, db2, "gmail_users_messages_list_requests"); got != 2 {
+	if err := g.SyncListPagesWithDB(db2); err != nil {
+		db2.Close()
+		t.Fatalf("SyncListPagesWithDB() error = %v", err)
+	}
+	db2.Close()
+
+	db3 := openTestDB(t, dbPath)
+	defer db3.Close()
+	if got := countRows(t, db3, "gmail_users_messages_list_requests"); got != 2 {
 		t.Fatalf("request rows = %d, expected 2", got)
 	}
 

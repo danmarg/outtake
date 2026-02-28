@@ -1,9 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"github.com/danmarg/outtake/lib/gmail"
 	"github.com/urfave/cli/v2"
+	_ "modernc.org/sqlite"
 	"os"
 	"path/filepath"
 )
@@ -72,11 +74,22 @@ func main() {
 			return err
 		}
 		dbPath := filepath.Join(d, ".outtake.v2.sqlite")
-		if err := g.SyncListPages(dbPath); err != nil {
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
 			fmt.Println(err)
 			os.Exit(-1)
 		}
-		if err := g.SyncListedMessages(dbPath); err != nil {
+		defer db.Close()
+		db.SetMaxOpenConns(1)
+		if _, err := db.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
+			fmt.Println(err)
+			os.Exit(-1)
+		}
+		if err := g.SyncListPagesWithDB(db); err != nil {
+			fmt.Println(err)
+			os.Exit(-1)
+		}
+		if err := g.SyncListedMessagesWithDB(db); err != nil {
 			fmt.Println(err)
 			os.Exit(-1)
 		}
