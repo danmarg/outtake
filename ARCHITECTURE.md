@@ -206,6 +206,61 @@ To keep the implementation minimal but safe:
 - On successful full/incremental completion, set committed `history_index` and clear progress key.
 - Keep existing 404->full-sync fallback behavior unchanged.
 
+## V2 milestone 1 SQLite schema (list-pages + auth token)
+
+The v2 listing path mirrors Gmail `Users.Messages.List` request/response records and stores OAuth token state in SQLite.
+
+```sql
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS gmail_users_messages_list_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pageToken TEXT,
+  labelIdsJson TEXT,
+  q TEXT,
+  maxResults INTEGER,
+  requestedAtMs INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gmail_users_messages_list_responses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  requestId INTEGER NOT NULL REFERENCES gmail_users_messages_list_requests(id),
+  nextPageToken TEXT,
+  resultSizeEstimate INTEGER,
+  receivedAtMs INTEGER NOT NULL,
+  rawJson TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gmail_users_messages_list_response_messages (
+  responseId INTEGER NOT NULL REFERENCES gmail_users_messages_list_responses(id),
+  id TEXT NOT NULL,
+  threadId TEXT,
+  rawJson TEXT NOT NULL,
+  PRIMARY KEY (responseId, id)
+);
+
+CREATE TABLE IF NOT EXISTS gmail_users_messages_index (
+  id TEXT PRIMARY KEY,
+  threadId TEXT,
+  lastResponseId INTEGER NOT NULL REFERENCES gmail_users_messages_list_responses(id),
+  updatedAtMs INTEGER NOT NULL,
+  rawJson TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  account TEXT PRIMARY KEY,
+  tokenType TEXT,
+  accessToken TEXT,
+  refreshToken TEXT,
+  expiryUnixMs INTEGER,
+  scope TEXT,
+  rawJson TEXT NOT NULL,
+  updatedAtMs INTEGER NOT NULL
+);
+```
+
+Resume token for list paging should come from latest request chain state (e.g. latest persisted response/nextPageToken), not from wall-clock timestamps.
+
 ## Summary
 
 - Initial sync is a full mailbox materialization + metadata reconciliation pipeline.
