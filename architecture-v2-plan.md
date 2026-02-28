@@ -36,11 +36,13 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 
 ## Cursors kept in `sync_state`
 
-- `users.messages.list.nextPageToken`
-- `users.messages.list.done`
-- `materialize.lastPageSeq` (optional)
-- `materialize.lastMessageSeq` (optional)
-- `users.history.list.cursor` (future)
+- `sync.list.next_page_token`
+- `sync.list.done`
+- `sync.materialize.cursor.response_id`
+- `sync.materialize.cursor.message_id`
+- `sync.history.cursor.committed` (future)
+- `sync.history.cursor.progress` (future)
+- `sync.history.page_token` (future)
 
 ## Sync behavior
 

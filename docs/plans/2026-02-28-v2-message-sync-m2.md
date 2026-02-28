@@ -17,8 +17,8 @@ Files:
 - `lib/gmail/*_test.go`
 
 - [ ] Add sync-state keys for body materialization checkpoint:
-  - `materialize.lastResponseId`
-  - `materialize.lastMessageId`
+  - `sync.materialize.cursor.response_id`
+  - `sync.materialize.cursor.message_id`
 - [ ] Add helpers to read/write these keys atomically.
 
 ## Task 2: Deterministic message stream from M1 tables

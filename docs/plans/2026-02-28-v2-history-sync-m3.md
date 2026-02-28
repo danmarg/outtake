@@ -17,9 +17,9 @@ Files:
 - `lib/gmail/*_test.go`
 
 - [ ] Add/standardize history keys in `sync_state`:
-  - `users.history.list.cursor`
-  - `users.history.list.cursor_progress`
-  - `users.history.list.pageToken` (optional, for page-level resume)
+  - `sync.history.cursor.committed`
+  - `sync.history.cursor.progress`
+  - `sync.history.page_token` (optional, for page-level resume)
 - [ ] Add helpers to read/write/clear these keys.
 
 ## Task 2: Bootstrap cursor when missing

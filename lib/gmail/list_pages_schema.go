@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	syncStateMaterializeLastResponseID = "materialize.lastResponseId"
-	syncStateMaterializeLastMessageID  = "materialize.lastMessageId"
+	syncStateMaterializeCursorResponseID = "sync.materialize.cursor.response_id"
+	syncStateMaterializeCursorMessageID  = "sync.materialize.cursor.message_id"
 )
 
 func ensureListPagesSchema(db *sql.DB) error {
@@ -106,7 +106,14 @@ func setSyncState(tx *sql.Tx, key, value string) error {
 }
 
 func getMaterializeCheckpoint(db *sql.DB) (int64, string, error) {
-	respRaw, ok, err := getSyncState(db, syncStateMaterializeLastResponseID)
+	respRaw, ok, err := getSyncState(db, syncStateMaterializeCursorResponseID)
+	if err != nil {
+		return 0, "", err
+	}
+	if !ok {
+		// backward-compat with earlier temporary key naming
+		respRaw, ok, err = getSyncState(db, "materialize.lastResponseId")
+	}
 	if err != nil {
 		return 0, "", err
 	}
@@ -117,16 +124,22 @@ func getMaterializeCheckpoint(db *sql.DB) (int64, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	msgID, _, err := getSyncState(db, syncStateMaterializeLastMessageID)
+	msgID, okMsg, err := getSyncState(db, syncStateMaterializeCursorMessageID)
 	if err != nil {
 		return 0, "", err
+	}
+	if !okMsg {
+		msgID, _, err = getSyncState(db, "materialize.lastMessageId")
+		if err != nil {
+			return 0, "", err
+		}
 	}
 	return respID, msgID, nil
 }
 
 func setMaterializeCheckpoint(tx *sql.Tx, responseID int64, messageID string) error {
-	if err := setSyncState(tx, syncStateMaterializeLastResponseID, strconv.FormatInt(responseID, 10)); err != nil {
+	if err := setSyncState(tx, syncStateMaterializeCursorResponseID, strconv.FormatInt(responseID, 10)); err != nil {
 		return err
 	}
-	return setSyncState(tx, syncStateMaterializeLastMessageID, messageID)
+	return setSyncState(tx, syncStateMaterializeCursorMessageID, messageID)
 }
