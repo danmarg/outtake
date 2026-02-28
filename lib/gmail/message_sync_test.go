@@ -71,22 +71,22 @@ func TestSyncListedMessagesResumesFromCheckpoint(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_requests(pageToken, requestedAtMs, nextPageToken, resultSizeEstimate, rawJson) VALUES('',1,'',0,'{}')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_responses(id, requestId, nextPageToken, resultSizeEstimate, receivedAtMs, rawJson) VALUES(10,1,'',0,1,'{}')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_responses(id, requestId, nextPageToken, resultSizeEstimate, receivedAtMs, rawJson) VALUES(1,1,'',0,1,'{}')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_responses(id, requestId, nextPageToken, resultSizeEstimate, receivedAtMs, rawJson) VALUES(9,1,'',0,1,'{}')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_responses(id, requestId, nextPageToken, resultSizeEstimate, receivedAtMs, rawJson) VALUES(2,1,'',0,1,'{}')`); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"c", "b", "a"} {
-		if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_response_messages(responseId, id, threadId, rawJson) VALUES(10, ?, ?, '{}')`, id, id); err != nil {
+	for _, id := range []string{"a", "b", "c"} {
+		if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_response_messages(responseId, id, threadId, rawJson) VALUES(1, ?, ?, '{}')`, id, id); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_response_messages(responseId, id, threadId, rawJson) VALUES(9, 'z', 'z', '{}')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_response_messages(responseId, id, threadId, rawJson) VALUES(2, 'z', 'z', '{}')`); err != nil {
 		t.Fatal(err)
 	}
 	tx, _ := db.Begin()
-	if err := setMaterializeCheckpoint(tx, 10, "b"); err != nil {
+	if err := setMaterializeCheckpoint(tx, 1, "b"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -95,22 +95,22 @@ func TestSyncListedMessagesResumesFromCheckpoint(t *testing.T) {
 	db.Close()
 
 	raw := base64.URLEncoding.EncodeToString([]byte("From: a@b\nTo: c@d\nSubject: hi\n\nbody"))
-	svc.Msgs["a"] = raw
+	svc.Msgs["c"] = raw
 	svc.Msgs["z"] = raw
-	svc.Metadata["a"] = &gmailapi.Message{Id: "a"}
+	svc.Metadata["c"] = &gmailapi.Message{Id: "c"}
 	svc.Metadata["z"] = &gmailapi.Message{Id: "z"}
 
 	if err := g.SyncListedMessages(dbPath); err != nil {
 		t.Fatalf("SyncListedMessages() error = %v", err)
 	}
 
-	if _, ok := g.cache.GetMsgKey("a"); !ok {
-		t.Fatalf("expected message a to be synced")
+	if _, ok := g.cache.GetMsgKey("c"); !ok {
+		t.Fatalf("expected message c to be synced")
 	}
 	if _, ok := g.cache.GetMsgKey("z"); !ok {
 		t.Fatalf("expected message z to be synced")
 	}
-	if _, ok := g.cache.GetMsgKey("c"); ok {
-		t.Fatalf("did not expect message c to be re-synced")
+	if _, ok := g.cache.GetMsgKey("a"); ok {
+		t.Fatalf("did not expect message a to be re-synced")
 	}
 }

@@ -216,7 +216,7 @@ func countRemainingListedMessages(db *sql.DB, lastRespID int64, lastMsgID string
 	q := `SELECT COUNT(*) FROM gmail_users_messages_list_response_messages`
 	args := []interface{}{}
 	if lastRespID > 0 {
-		q += ` WHERE (responseId < ?) OR (responseId = ? AND id < ?)`
+		q += ` WHERE (responseId > ?) OR (responseId = ? AND id > ?)`
 		args = append(args, lastRespID, lastRespID, lastMsgID)
 	}
 	var n int
@@ -231,10 +231,10 @@ func nextListedMessagesBatch(db *sql.DB, lastRespID int64, lastMsgID string, lim
 		FROM gmail_users_messages_list_response_messages`
 	args := []interface{}{}
 	if lastRespID > 0 {
-		base += ` WHERE (responseId < ?) OR (responseId = ? AND id < ?)`
+		base += ` WHERE (responseId > ?) OR (responseId = ? AND id > ?)`
 		args = append(args, lastRespID, lastRespID, lastMsgID)
 	}
-	base += ` ORDER BY responseId DESC, id DESC LIMIT ?`
+	base += ` ORDER BY responseId ASC, id ASC LIMIT ?`
 	args = append(args, limit)
 
 	rows, err := db.Query(base, args...)
