@@ -194,15 +194,15 @@ func (g *Gmail) SyncListedMessagesWithDB(db *sql.DB) error {
 			if total > 0 {
 				pct = float64(processed) / float64(total) * 100.0
 			}
-			msgPerSec := float64(totalDone) / elapsed
-			secPerMsg := elapsed / float64(maxInt(totalDone, 1))
+			rateDownloaded := float64(downloaded) / elapsed
+			secPerMsg := elapsed / float64(maxInt(downloaded, 1))
 			remainingItems := maxInt(total-processed, 0)
 			etaSec := 0.0
-			if msgPerSec > 0 {
-				etaSec = float64(remainingItems) / msgPerSec
+			if rateDownloaded > 0 {
+				etaSec = float64(remainingItems) / rateDownloaded
 			}
-			log.Printf("downloading-archived: perf progress=%d/%d %.2f%% eta=%s done=%d downloaded=%d skipped=%d failed=%d rate=%.2f msg/s latency=%.3f s/msg",
-				processed, total, pct, etaString(etaSec), totalDone, downloaded, skipped, failed, msgPerSec, secPerMsg)
+			log.Printf("downloading-archived: perf progress=%d/%d %.2f%% eta=%s done=%d downloaded=%d skipped=%d failed=%d rate_downloaded=%.2f msg/s latency=%.3f s/msg",
+				processed, total, pct, etaString(etaSec), totalDone, downloaded, skipped, failed, rateDownloaded, secPerMsg)
 			lastPerfLog = time.Now()
 		}
 	}
@@ -218,9 +218,8 @@ func (g *Gmail) SyncListedMessagesWithDB(db *sql.DB) error {
 	if elapsed <= 0 {
 		elapsed = 0.001
 	}
-	totalDone := downloaded + skipped + failed
-	log.Printf("downloading-archived: complete downloaded=%d skipped=%d failed=%d elapsed=%.1fs rate=%.2f msg/s",
-		downloaded, skipped, failed, elapsed, float64(totalDone)/elapsed)
+	log.Printf("downloading-archived: complete downloaded=%d skipped=%d failed=%d elapsed=%.1fs rate_downloaded=%.2f msg/s",
+		downloaded, skipped, failed, elapsed, float64(downloaded)/elapsed)
 	return nil
 }
 
