@@ -2,8 +2,6 @@ package lib
 
 import (
 	"log"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -21,28 +19,16 @@ type Cache interface {
 type BoltCache struct {
 	Cache
 	db       *bolt.DB
-	diag     bool
 	diagSlow time.Duration
 }
 
 func NewBoltCache(path string) (BoltCache, error) {
 	db, err := bolt.Open(path, 0666, nil)
-	c := BoltCache{db: db}
-	if v := os.Getenv("OUTTAKE_BOLT_DIAG"); v == "1" || v == "true" || v == "TRUE" {
-		c.diag = true
-	}
-	if v := os.Getenv("OUTTAKE_BOLT_DIAG_SLOW_MS"); v != "" {
-		if ms, err := strconv.Atoi(v); err == nil && ms >= 0 {
-			c.diagSlow = time.Duration(ms) * time.Millisecond
-		}
-	}
+	c := BoltCache{db: db, diagSlow: 5 * time.Millisecond}
 	return c, err
 }
 
 func (c BoltCache) logWrite(op, ns, k string, start time.Time) {
-	if !c.diag {
-		return
-	}
 	d := time.Since(start)
 	if c.diagSlow > 0 && d < c.diagSlow {
 		return
