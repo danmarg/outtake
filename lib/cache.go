@@ -29,12 +29,11 @@ func NewBoltCache(path string) (BoltCache, error) {
 }
 
 func (c BoltCache) logWrite(op, ns, k string, start time.Time) {
-	d := time.Since(start)
-	threshold := c.diagSlow
-	if ns == "full_sync_seen" && threshold < 500*time.Millisecond {
-		threshold = 500 * time.Millisecond
+	if ns != "full_sync_state" {
+		return
 	}
-	if threshold > 0 && d < threshold {
+	d := time.Since(start)
+	if c.diagSlow > 0 && d < c.diagSlow {
 		return
 	}
 	log.Printf("\nbolt write: op=%s ns=%s key=%s took=%dms", op, ns, k, d.Milliseconds())

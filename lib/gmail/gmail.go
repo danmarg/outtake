@@ -522,8 +522,10 @@ func (g *Gmail) full(reset bool) error {
 	resuming := g.cache.GetFullSyncActive()
 	if !resuming {
 		g.cache.SetFullSyncActive(true)
+		log.Printf("Performing full sync (resuming=false).")
+	} else {
+		log.Printf("Performing full sync (resuming=true; restore page_token=%q highest_history=%d).", g.cache.GetFullSyncPageToken(), g.cache.GetFullSyncHighestHistory())
 	}
-	log.Printf("Performing full sync (resuming=%t).", resuming)
 	// XXX: -in:chats to skip chats that aren't MIME messages.
 	newMsgs := make(chan string, MessageBufferSize)
 	ops := make(chan msgOp, MessageBufferSize)
