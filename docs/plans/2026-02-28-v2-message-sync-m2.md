@@ -55,7 +55,22 @@ Files:
 - [ ] If checkpoint message not found, advance to next available row.
 - [ ] Add crash-restart test proving forward progress.
 
-## Task 5: Wire into default sync
+## Task 5: Logging (match old-version feel)
+
+Files:
+- `lib/gmail/message_sync.go`
+- `lib/progress.go`
+- `main.go`
+
+- [ ] Add message download progress output similar to old behavior:
+  - current / total
+  - percent
+  - msg/s
+  - s/msg
+- [ ] Add periodic status logs for failures/retries without breaking progress line readability.
+- [ ] Keep list-phase logs and clearly separate phase-1 vs phase-2 log prefixes.
+
+## Task 6: Wire into default sync
 
 Files:
 - `main.go`
@@ -63,9 +78,9 @@ Files:
 
 - [ ] Run Phase 1 list sync first.
 - [ ] Run Phase 2 message sync immediately after.
-- [ ] Preserve current list-sync logging and add phase-2 progress logging.
+- [ ] Ensure phase-2 progress logger is enabled by default.
 
-## Task 6: Verification
+## Task 7: Verification
 
 - [ ] Focused tests for phase 2.
 - [ ] Full suite: `go test ./...`
