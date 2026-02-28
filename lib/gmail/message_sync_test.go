@@ -1,0 +1,116 @@
+package gmail
+
+import (
+	"database/sql"
+	"encoding/base64"
+	"os"
+	"path/filepath"
+	"testing"
+
+	_ "modernc.org/sqlite"
+	gmailapi "google.golang.org/api/gmail/v1"
+)
+
+func seedListRows(t *testing.T, db *sql.DB, rows []listedMessage) {
+	t.Helper()
+	if err := ensureListPagesSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_requests(pageToken, requestedAtMs, nextPageToken, resultSizeEstimate, rawJson) VALUES('',1,'',0,'{}')`); err != nil {
+		t.Fatal(err)
+	}
+	res, err := db.Exec(`INSERT INTO gmail_users_messages_list_responses(requestId, nextPageToken, resultSizeEstimate, receivedAtMs, rawJson) VALUES(1,'',0,1,'{}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultRespID, _ := res.LastInsertId()
+	for _, r := range rows {
+		respID := r.ResponseID
+		if respID == 0 {
+			respID = defaultRespID
+		}
+		if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_response_messages(responseId, id, threadId, rawJson) VALUES(?, ?, ?, '{}')`, respID, r.MessageID, r.MessageID); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestSyncListedMessagesWritesToMaildir(t *testing.T) {
+	g, svc, dir := getTestClient()
+	dbPath := filepath.Join(dir, "m2.db")
+	db := openTestDB(t, dbPath)
+	seedListRows(t, db, []listedMessage{{MessageID: "m1"}, {MessageID: "m2"}})
+	db.Close()
+
+	raw := base64.URLEncoding.EncodeToString([]byte("From: a@b\nTo: c@d\nSubject: hi\n\nbody"))
+	svc.Msgs["m1"] = raw
+	svc.Msgs["m2"] = raw
+	svc.Metadata["m1"] = &gmailapi.Message{Id: "m1", LabelIds: []string{"INBOX"}}
+	svc.Metadata["m2"] = &gmailapi.Message{Id: "m2", LabelIds: []string{"STARRED"}}
+
+	if err := g.SyncListedMessages(dbPath); err != nil {
+		t.Fatalf("SyncListedMessages() error = %v", err)
+	}
+
+	files, err := os.ReadDir(filepath.Join(dir, "new"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("maildir new files=%d expected 2", len(files))
+	}
+}
+
+func TestSyncListedMessagesResumesFromCheckpoint(t *testing.T) {
+	g, svc, dir := getTestClient()
+	dbPath := filepath.Join(dir, "m2_resume.db")
+	db := openTestDB(t, dbPath)
+	if err := ensureListPagesSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_requests(pageToken, requestedAtMs, nextPageToken, resultSizeEstimate, rawJson) VALUES('',1,'',0,'{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_responses(id, requestId, nextPageToken, resultSizeEstimate, receivedAtMs, rawJson) VALUES(10,1,'',0,1,'{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_responses(id, requestId, nextPageToken, resultSizeEstimate, receivedAtMs, rawJson) VALUES(9,1,'',0,1,'{}')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"c", "b", "a"} {
+		if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_response_messages(responseId, id, threadId, rawJson) VALUES(10, ?, ?, '{}')`, id, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_response_messages(responseId, id, threadId, rawJson) VALUES(9, 'z', 'z', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	tx, _ := db.Begin()
+	if err := setMaterializeCheckpoint(tx, 10, "b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	raw := base64.URLEncoding.EncodeToString([]byte("From: a@b\nTo: c@d\nSubject: hi\n\nbody"))
+	svc.Msgs["a"] = raw
+	svc.Msgs["z"] = raw
+	svc.Metadata["a"] = &gmailapi.Message{Id: "a"}
+	svc.Metadata["z"] = &gmailapi.Message{Id: "z"}
+
+	if err := g.SyncListedMessages(dbPath); err != nil {
+		t.Fatalf("SyncListedMessages() error = %v", err)
+	}
+
+	if _, ok := g.cache.GetMsgKey("a"); !ok {
+		t.Fatalf("expected message a to be synced")
+	}
+	if _, ok := g.cache.GetMsgKey("z"); !ok {
+		t.Fatalf("expected message z to be synced")
+	}
+	if _, ok := g.cache.GetMsgKey("c"); ok {
+		t.Fatalf("did not expect message c to be re-synced")
+	}
+}

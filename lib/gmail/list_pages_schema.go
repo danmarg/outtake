@@ -1,6 +1,15 @@
 package gmail
 
-import "database/sql"
+import (
+	"database/sql"
+	"strconv"
+	"time"
+)
+
+const (
+	syncStateMaterializeLastResponseID = "materialize.lastResponseId"
+	syncStateMaterializeLastMessageID  = "materialize.lastMessageId"
+)
 
 func ensureListPagesSchema(db *sql.DB) error {
 	stmts := []string{
@@ -47,6 +56,11 @@ func ensureListPagesSchema(db *sql.DB) error {
 			rawJson TEXT NOT NULL,
 			updatedAtMs INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS sync_state (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updatedAtMs INTEGER NOT NULL
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
@@ -69,4 +83,50 @@ func getResumePageToken(db *sql.DB) (string, bool, error) {
 		return token.String, true, nil
 	}
 	return "", true, nil
+}
+
+func getSyncState(db *sql.DB, key string) (string, bool, error) {
+	var value string
+	err := db.QueryRow(`SELECT value FROM sync_state WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return value, true, nil
+}
+
+func setSyncState(tx *sql.Tx, key, value string) error {
+	_, err := tx.Exec(`INSERT INTO sync_state(key, value, updatedAtMs)
+		VALUES(?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updatedAtMs=excluded.updatedAtMs`,
+		key, value, time.Now().UnixMilli())
+	return err
+}
+
+func getMaterializeCheckpoint(db *sql.DB) (int64, string, error) {
+	respRaw, ok, err := getSyncState(db, syncStateMaterializeLastResponseID)
+	if err != nil {
+		return 0, "", err
+	}
+	if !ok {
+		return 0, "", nil
+	}
+	respID, err := strconv.ParseInt(respRaw, 10, 64)
+	if err != nil {
+		return 0, "", err
+	}
+	msgID, _, err := getSyncState(db, syncStateMaterializeLastMessageID)
+	if err != nil {
+		return 0, "", err
+	}
+	return respID, msgID, nil
+}
+
+func setMaterializeCheckpoint(tx *sql.Tx, responseID int64, messageID string) error {
+	if err := setSyncState(tx, syncStateMaterializeLastResponseID, strconv.FormatInt(responseID, 10)); err != nil {
+		return err
+	}
+	return setSyncState(tx, syncStateMaterializeLastMessageID, messageID)
 }
