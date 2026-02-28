@@ -1,6 +1,11 @@
 package lib
 
 import (
+	"log"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/boltdb/bolt"
 )
 
@@ -8,21 +13,45 @@ type Cache interface {
 	Set(ns, k string, v []byte)
 	Get(ns, k string) ([]byte, bool)
 	Del(ns, k string)
+	Clear(ns string)
 	Items(ns string, ks chan<- string)
 	Close()
 }
 
 type BoltCache struct {
 	Cache
-	db *bolt.DB
+	db       *bolt.DB
+	diag     bool
+	diagSlow time.Duration
 }
 
 func NewBoltCache(path string) (BoltCache, error) {
 	db, err := bolt.Open(path, 0666, nil)
-	return BoltCache{db: db}, err
+	c := BoltCache{db: db}
+	if v := os.Getenv("OUTTAKE_BOLT_DIAG"); v == "1" || v == "true" || v == "TRUE" {
+		c.diag = true
+	}
+	if v := os.Getenv("OUTTAKE_BOLT_DIAG_SLOW_MS"); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil && ms >= 0 {
+			c.diagSlow = time.Duration(ms) * time.Millisecond
+		}
+	}
+	return c, err
+}
+
+func (c BoltCache) logWrite(op, ns, k string, start time.Time) {
+	if !c.diag {
+		return
+	}
+	d := time.Since(start)
+	if c.diagSlow > 0 && d < c.diagSlow {
+		return
+	}
+	log.Printf("bolt write: op=%s ns=%s key=%s took=%dms", op, ns, k, d.Milliseconds())
 }
 
 func (c BoltCache) Set(ns, k string, v []byte) {
+	start := time.Now()
 	if err := c.db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(ns))
 		if err != nil {
@@ -32,6 +61,7 @@ func (c BoltCache) Set(ns, k string, v []byte) {
 	}); err != nil {
 		panic(err)
 	}
+	c.logWrite("set", ns, k, start)
 }
 
 func (c BoltCache) Get(ns, k string) ([]byte, bool) {
@@ -57,6 +87,7 @@ func (c BoltCache) Get(ns, k string) ([]byte, bool) {
 }
 
 func (c BoltCache) Del(ns, k string) {
+	start := time.Now()
 	if err := c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(ns))
 		if b != nil {
@@ -66,6 +97,22 @@ func (c BoltCache) Del(ns, k string) {
 	}); err != nil {
 		panic(err)
 	}
+	c.logWrite("del", ns, k, start)
+}
+
+func (c BoltCache) Clear(ns string) {
+	start := time.Now()
+	if err := c.db.Update(func(tx *bolt.Tx) error {
+		name := []byte(ns)
+		if err := tx.DeleteBucket(name); err != nil && err != bolt.ErrBucketNotFound {
+			return err
+		}
+		_, err := tx.CreateBucketIfNotExists(name)
+		return err
+	}); err != nil {
+		panic(err)
+	}
+	c.logWrite("clear", ns, "*", start)
 }
 
 func (c BoltCache) Items(ns string, ks chan<- string) {
@@ -84,4 +131,10 @@ func (c BoltCache) Items(ns string, ks chan<- string) {
 			panic(err)
 		}
 	}()
+}
+
+func (c BoltCache) Close() {
+	if c.db != nil {
+		_ = c.db.Close()
+	}
 }

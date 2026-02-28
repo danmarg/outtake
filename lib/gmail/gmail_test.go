@@ -138,7 +138,42 @@ func TestHistoryIdxProgressRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSyncPrefersProgressHistoryIndex(t *testing.T) {
+func TestFullSyncSessionRoundTrip(t *testing.T) {
+	c := newTestCache()
+	c.SetFullSyncActive(true)
+	c.SetFullSyncPageToken("abc")
+	c.SetFullSyncHighestHistory(99)
+	c.AddFullSyncSeen("m1")
+
+	if !c.GetFullSyncActive() {
+		t.Error("GetFullSyncActive() = false, expected true")
+	}
+	if got := c.GetFullSyncPageToken(); got != "abc" {
+		t.Errorf("GetFullSyncPageToken() = %q, expected %q", got, "abc")
+	}
+	if got := c.GetFullSyncHighestHistory(); got != 99 {
+		t.Errorf("GetFullSyncHighestHistory() = %v, expected 99", got)
+	}
+	if !c.FullSyncSeen("m1") {
+		t.Error("FullSyncSeen(m1) = false, expected true")
+	}
+
+	c.ClearFullSyncSession()
+	if c.GetFullSyncActive() {
+		t.Error("GetFullSyncActive() after clear = true, expected false")
+	}
+	if got := c.GetFullSyncPageToken(); got != "" {
+		t.Errorf("GetFullSyncPageToken() after clear = %q, expected empty", got)
+	}
+	if got := c.GetFullSyncHighestHistory(); got != 0 {
+		t.Errorf("GetFullSyncHighestHistory() after clear = %v, expected 0", got)
+	}
+	if c.FullSyncSeen("m1") {
+		t.Error("FullSyncSeen(m1) after clear = true, expected false")
+	}
+}
+
+func TestSyncUsesCommittedHistoryIndex(t *testing.T) {
 	c, svc, _ := getTestClient()
 	c.cache.SetHistoryIdx(10)
 	c.cache.SetHistoryIdxProgress(20)
@@ -146,8 +181,8 @@ func TestSyncPrefersProgressHistoryIndex(t *testing.T) {
 	if err := c.Sync(false, nil); err != nil {
 		t.Fatalf("Sync(false, nil) = %v, expected nil", err)
 	}
-	if svc.LastHistoryStart != 20 {
-		t.Errorf("incremental start history index = %v, expected 20", svc.LastHistoryStart)
+	if svc.LastHistoryStart != 10 {
+		t.Errorf("incremental start history index = %v, expected 10", svc.LastHistoryStart)
 	}
 	if got := c.cache.GetHistoryIdxProgress(); got != 0 {
 		t.Errorf("GetHistoryIdxProgress() after successful incremental = %v, expected 0", got)

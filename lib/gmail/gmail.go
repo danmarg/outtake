@@ -515,8 +515,15 @@ func (g *Gmail) writeOperation(o msgOp) error {
 	return nil
 }
 
-func (g *Gmail) full() error {
-	log.Println("Performing full sync.")
+func (g *Gmail) full(reset bool) error {
+	if reset {
+		g.cache.ClearFullSyncSession()
+	}
+	resuming := g.cache.GetFullSyncActive()
+	if !resuming {
+		g.cache.SetFullSyncActive(true)
+	}
+	log.Printf("Performing full sync (resuming=%t).", resuming)
 	// XXX: -in:chats to skip chats that aren't MIME messages.
 	newMsgs := make(chan string, MessageBufferSize)
 	ops := make(chan msgOp, MessageBufferSize)
@@ -534,11 +541,11 @@ func (g *Gmail) full() error {
 		wg.Wait()
 		close(ops)
 	}()
-	seen := make(map[string]struct{}) // Used to compute deletes.
-	t := uint(0)                      // Total count, for progress reporting.
+	pageStart := g.cache.GetFullSyncPageToken()
+	t := uint(0) // Total count, for progress reporting.
 	go func() {
 		defer close(newMsgs)
-		page := ""
+		page := pageStart
 		for true {
 			r, err := g.svc.GetMessages(g.labelId, page)
 			if err != nil {
@@ -546,17 +553,18 @@ func (g *Gmail) full() error {
 				return
 			}
 			page = r.NextPageToken
+			g.cache.SetFullSyncPageToken(page)
 			t += uint(r.ResultSizeEstimate)
 			for _, m := range r.Messages {
 				newMsgs <- m.Id
-				seen[m.Id] = struct{}{}
+				g.cache.AddFullSyncSeen(m.Id)
 			}
 			if page == "" {
 				break
 			}
 		}
 	}()
-	historyId := uint64(0)
+	historyId := g.cache.GetFullSyncHighestHistory()
 	i := uint(0) // For updating progress bar.
 	for o := range ops {
 		// Update progress bar.
@@ -577,16 +585,16 @@ func (g *Gmail) full() error {
 			return err
 		}
 		if historyId > 0 {
-			g.cache.SetHistoryIdxProgress(historyId)
+			g.cache.SetFullSyncHighestHistory(historyId)
 			if i%1000 == 0 {
-				log.Printf("full sync checkpoint: history_index_progress=%d (ops=%d)", historyId, i)
+				log.Printf("full sync checkpoint: highest_history=%d (ops=%d)", historyId, i)
 			}
 		}
 	}
 	is := make(chan string)
 	g.cache.GetMsgs(is)
 	for i := range is {
-		if _, ok := seen[i]; !ok {
+		if !g.cache.FullSyncSeen(i) {
 			if err := g.writeDel(i); err != nil {
 				return err
 			}
@@ -594,7 +602,8 @@ func (g *Gmail) full() error {
 	}
 	g.cache.SetHistoryIdx(historyId)
 	g.cache.ClearHistoryIdxProgress()
-	log.Printf("full sync complete: history_index=%d (cleared progress checkpoint)", historyId)
+	g.cache.ClearFullSyncSession()
+	log.Printf("full sync complete: history_index=%d (cleared full-sync session)", historyId)
 	return nil
 }
 
@@ -616,7 +625,7 @@ func (g *Gmail) Sync(full bool, progress chan<- lib.Progress) error {
 		if err := g.incremental(hidx); err != nil {
 			if err == fullSyncRequired {
 				log.Printf("incremental from %s=%d failed: history token expired, falling back to full sync", source, hidx)
-				return g.full()
+				return g.full(false)
 			}
 			return err
 		}
@@ -624,11 +633,13 @@ func (g *Gmail) Sync(full bool, progress chan<- lib.Progress) error {
 	}
 
 	if !full {
-		if progressIdx > 0 {
-			return runIncremental(progressIdx, "history_index_progress")
-		}
 		if committed > 0 {
 			return runIncremental(committed, "history_index")
+		}
+		if g.cache.GetFullSyncActive() {
+			log.Printf("resume source: full_sync_session (history_index_progress=%d is not a safe resume token for partial full sync)", progressIdx)
+		} else if progressIdx > 0 {
+			log.Printf("stale history_index_progress=%d present but no full_sync_session state; starting full sync from scratch", progressIdx)
 		}
 	}
 	if full {
@@ -636,5 +647,5 @@ func (g *Gmail) Sync(full bool, progress chan<- lib.Progress) error {
 	} else {
 		log.Println("sync mode: full (no history index checkpoint available)")
 	}
-	return g.full()
+	return g.full(full)
 }

@@ -12,11 +12,16 @@ import (
 
 const (
 	// Cache key prefixes.
-	midToKey             = "mid_to_key"
-	midToLabels          = "mid_to_label"
-	historyIndex         = "history_index"
-	historyIndexProgress = "history_index_progress"
-	oauthToken           = "oauth_token"
+	midToKey              = "mid_to_key"
+	midToLabels           = "mid_to_label"
+	historyIndex          = "history_index"
+	historyIndexProgress  = "history_index_progress"
+	oauthToken            = "oauth_token"
+	fullSyncState         = "full_sync_state"
+	fullSyncSeen          = "full_sync_seen"
+	fullSyncStateActive   = "active"
+	fullSyncStatePage     = "page_token"
+	fullSyncStateHighHist = "highest_history"
 )
 
 type gmailCache struct {
@@ -110,4 +115,60 @@ func (c *gmailCache) SetHistoryIdxProgress(i uint64) {
 
 func (c *gmailCache) ClearHistoryIdxProgress() {
 	c.Cache.Del(historyIndexProgress, "0")
+}
+
+func (c *gmailCache) SetFullSyncActive(active bool) {
+	v := []byte{0}
+	if active {
+		v[0] = 1
+	}
+	c.Cache.Set(fullSyncState, fullSyncStateActive, v)
+}
+
+func (c *gmailCache) GetFullSyncActive() bool {
+	if b, ok := c.Cache.Get(fullSyncState, fullSyncStateActive); ok && len(b) > 0 {
+		return b[0] == 1
+	}
+	return false
+}
+
+func (c *gmailCache) SetFullSyncPageToken(token string) {
+	c.Cache.Set(fullSyncState, fullSyncStatePage, []byte(token))
+}
+
+func (c *gmailCache) GetFullSyncPageToken() string {
+	if b, ok := c.Cache.Get(fullSyncState, fullSyncStatePage); ok {
+		return string(b)
+	}
+	return ""
+}
+
+func (c *gmailCache) SetFullSyncHighestHistory(i uint64) {
+	b := make([]byte, 8)
+	binary.PutUvarint(b, i)
+	c.Cache.Set(fullSyncState, fullSyncStateHighHist, b)
+}
+
+func (c *gmailCache) GetFullSyncHighestHistory() uint64 {
+	hidx := uint64(0)
+	if b, ok := c.Cache.Get(fullSyncState, fullSyncStateHighHist); ok {
+		hidx, _ = binary.Uvarint(b)
+	}
+	return hidx
+}
+
+func (c *gmailCache) AddFullSyncSeen(id string) {
+	c.Cache.Set(fullSyncSeen, id, []byte{1})
+}
+
+func (c *gmailCache) FullSyncSeen(id string) bool {
+	_, ok := c.Cache.Get(fullSyncSeen, id)
+	return ok
+}
+
+func (c *gmailCache) ClearFullSyncSession() {
+	c.SetFullSyncActive(false)
+	c.Cache.Del(fullSyncState, fullSyncStatePage)
+	c.Cache.Del(fullSyncState, fullSyncStateHighHist)
+	c.Cache.Clear(fullSyncSeen)
 }
