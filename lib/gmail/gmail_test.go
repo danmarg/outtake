@@ -56,11 +56,13 @@ func TestLabelsChanged(t *testing.T) {
 
 type testService struct {
 	gmailService
-	Msgs     map[string]string
-	Metadata map[string]*gmail.Message
-	Labels   *gmail.ListLabelsResponse
-	History  map[string]*gmail.ListHistoryResponse
-	Messages map[string]*gmail.ListMessagesResponse
+	Msgs              map[string]string
+	Metadata          map[string]*gmail.Message
+	Labels            *gmail.ListLabelsResponse
+	History           map[string]*gmail.ListHistoryResponse
+	Messages          map[string]*gmail.ListMessagesResponse
+	LastHistoryStart  uint64
+	HistoryCallCount  int
 }
 
 func (s *testService) GetRawMessage(id string) (string, error) {
@@ -82,6 +84,8 @@ func (s *testService) GetLabels() (*gmail.ListLabelsResponse, error) {
 }
 
 func (s *testService) GetHistory(i uint64, label, page string) (*gmail.ListHistoryResponse, error) {
+	s.LastHistoryStart = i
+	s.HistoryCallCount++
 	if m, ok := s.History[page]; ok {
 		return m, nil
 	}
@@ -120,6 +124,34 @@ func getTestClient() (*Gmail, *testService, string) {
 		svc:   s,
 	}
 	return g, s, d
+}
+
+func TestHistoryIdxProgressRoundTrip(t *testing.T) {
+	c := newTestCache()
+	c.SetHistoryIdxProgress(42)
+	if got := c.GetHistoryIdxProgress(); got != 42 {
+		t.Errorf("GetHistoryIdxProgress() = %v, expected 42", got)
+	}
+	c.ClearHistoryIdxProgress()
+	if got := c.GetHistoryIdxProgress(); got != 0 {
+		t.Errorf("GetHistoryIdxProgress() after clear = %v, expected 0", got)
+	}
+}
+
+func TestSyncPrefersProgressHistoryIndex(t *testing.T) {
+	c, svc, _ := getTestClient()
+	c.cache.SetHistoryIdx(10)
+	c.cache.SetHistoryIdxProgress(20)
+	svc.History[""] = &gmail.ListHistoryResponse{}
+	if err := c.Sync(false, nil); err != nil {
+		t.Fatalf("Sync(false, nil) = %v, expected nil", err)
+	}
+	if svc.LastHistoryStart != 20 {
+		t.Errorf("incremental start history index = %v, expected 20", svc.LastHistoryStart)
+	}
+	if got := c.cache.GetHistoryIdxProgress(); got != 0 {
+		t.Errorf("GetHistoryIdxProgress() after successful incremental = %v, expected 0", got)
+	}
 }
 
 func TestSync(t *testing.T) {
@@ -184,10 +216,10 @@ asdf`))
 		History: []*gmail.History{
 			{
 				Id:              1,
-				MessagesDeleted: []*gmail.HistoryMessageDeleted{{&gmail.Message{Id: "0x1"}}},
+				MessagesDeleted: []*gmail.HistoryMessageDeleted{{Message: &gmail.Message{Id: "0x1"}}},
 				LabelsAdded:     []*gmail.HistoryLabelAdded{{LabelIds: []string{"LABEL_2"}, Message: &gmail.Message{Id: "0x2"}}},
 				LabelsRemoved:   []*gmail.HistoryLabelRemoved{{LabelIds: []string{"LABEL_3"}, Message: &gmail.Message{Id: "0x3"}}},
-				MessagesAdded:   []*gmail.HistoryMessageAdded{{&gmail.Message{Id: "0x4"}}},
+				MessagesAdded:   []*gmail.HistoryMessageAdded{{Message: &gmail.Message{Id: "0x4"}}},
 			},
 		},
 	}

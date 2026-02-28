@@ -492,6 +492,8 @@ func (g *Gmail) incremental(historyId uint64) error {
 		}
 	}
 	g.cache.SetHistoryIdx(historyId)
+	g.cache.ClearHistoryIdxProgress()
+	log.Printf("incremental sync complete: history_index=%d (cleared progress checkpoint)", historyId)
 	return nil
 }
 
@@ -574,6 +576,12 @@ func (g *Gmail) full() error {
 		if err := g.writeOperation(o); err != nil {
 			return err
 		}
+		if historyId > 0 {
+			g.cache.SetHistoryIdxProgress(historyId)
+			if i%1000 == 0 {
+				log.Printf("full sync checkpoint: history_index_progress=%d (ops=%d)", historyId, i)
+			}
+		}
 	}
 	is := make(chan string)
 	g.cache.GetMsgs(is)
@@ -585,6 +593,8 @@ func (g *Gmail) full() error {
 		}
 	}
 	g.cache.SetHistoryIdx(historyId)
+	g.cache.ClearHistoryIdxProgress()
+	log.Printf("full sync complete: history_index=%d (cleared progress checkpoint)", historyId)
 	return nil
 }
 
@@ -597,16 +607,34 @@ func (g *Gmail) Sync(full bool, progress chan<- lib.Progress) error {
 			g.labelId = l
 		}
 	}
-	// Get the cached history index.
-	if hidx := g.cache.GetHistoryIdx(); hidx > 0 && !full {
+	committed := g.cache.GetHistoryIdx()
+	progressIdx := g.cache.GetHistoryIdxProgress()
+	log.Printf("sync start: full=%t committed_history_index=%d progress_history_index=%d", full, committed, progressIdx)
+
+	runIncremental := func(hidx uint64, source string) error {
+		log.Printf("resume source: %s=%d", source, hidx)
 		if err := g.incremental(hidx); err != nil {
 			if err == fullSyncRequired {
-				log.Println("History token expired--falling back to full sync")
+				log.Printf("incremental from %s=%d failed: history token expired, falling back to full sync", source, hidx)
 				return g.full()
 			}
 			return err
 		}
 		return nil
+	}
+
+	if !full {
+		if progressIdx > 0 {
+			return runIncremental(progressIdx, "history_index_progress")
+		}
+		if committed > 0 {
+			return runIncremental(committed, "history_index")
+		}
+	}
+	if full {
+		log.Println("sync mode: forced full (--full)")
+	} else {
+		log.Println("sync mode: full (no history index checkpoint available)")
 	}
 	return g.full()
 }

@@ -38,6 +38,12 @@ State is persisted in a BoltDB file (`.outtake`) in the target maildir.
     - message-id -> maildir key
     - message-id -> labels
     - oauth token
+  - `history_index` encoding details:
+    - namespace (bucket): `history_index`
+    - key: `"0"`
+    - value type: `[]byte` length 8
+    - serialization: unsigned varint via `binary.PutUvarint` / `binary.Uvarint`
+    - note: varint payload may use fewer than 8 bytes; remaining bytes are zero-filled in stored buffer
 
 - **Maildir writer** (`lib/maildir/maildir.go`)
   - Writes messages into `tmp/` then moves to `new/`
@@ -161,8 +167,48 @@ This is an unusual formula (nanoseconds raised to power `i`) and can grow extrem
 
 ---
 
+## Risk analysis for incremental checkpointing during full sync
+
+If we introduce `history_index_progress` to resume after failures, these are the main risks:
+
+1. **Checkpoint ahead of durable local writes (highest risk)**
+   - If progress is advanced before `writeOperation()` has succeeded, a restart may skip messages permanently.
+
+2. **Incomplete full-sync delete reconciliation**
+   - Full sync has a final `seen`-based delete pass.
+   - Restarting via incremental before this pass has completed can leave stale local messages.
+
+3. **Concurrency/ordering hazards**
+   - Full sync processes messages in parallel.
+   - Progress must reflect fully applied operations, not just observed metadata history IDs.
+
+4. **Crash during checkpoint transitions**
+   - Crashes can leave: progress set + committed old, or committed new + progress uncleared.
+   - Startup logic must be deterministic and safe for both.
+
+5. **Expired history token on resume**
+   - Resuming from progress may fail with 404 if token expired; fallback full sync must remain correct.
+
+6. **Performance overhead**
+   - Very frequent progress writes can increase Bolt transaction overhead.
+
+7. **Concurrent process races**
+   - Two `outtake` processes against one cache/maildir can race checkpoint keys and produce undefined behavior.
+
+### Minimal safe constraints
+
+To keep the implementation minimal but safe:
+
+- Advance progress checkpoint **only after successful `writeOperation(o)`**.
+- Progress value should represent a completed watermark, not merely observed max history ID.
+- Update progress periodically (e.g., every N operations) to reduce write overhead.
+- On startup, if `history_index_progress` exists, prefer it when `!full`.
+- On successful full/incremental completion, set committed `history_index` and clear progress key.
+- Keep existing 404->full-sync fallback behavior unchanged.
+
 ## Summary
 
 - Initial sync is a full mailbox materialization + metadata reconciliation pipeline.
 - It is naturally slow on large inboxes because it performs broad API + disk work.
 - Failures are expensive because checkpoint commit (`history_index`) is end-of-run, so partial progress does not become a resumable incremental starting point.
+- Incremental checkpointing can solve restart pain, but only if checkpoint semantics are strictly "applied locally and durable".

@@ -12,10 +12,11 @@ import (
 
 const (
 	// Cache key prefixes.
-	midToKey     = "mid_to_key"
-	midToLabels  = "mid_to_label"
-	historyIndex = "history_index"
-	oauthToken   = "oauth_token"
+	midToKey             = "mid_to_key"
+	midToLabels          = "mid_to_label"
+	historyIndex         = "history_index"
+	historyIndexProgress = "history_index_progress"
+	oauthToken           = "oauth_token"
 )
 
 type gmailCache struct {
@@ -91,4 +92,22 @@ func (c *gmailCache) SetHistoryIdx(i uint64) {
 	b := make([]byte, 8)
 	binary.PutUvarint(b, i)
 	c.Cache.Set(historyIndex, "0", b)
+}
+
+func (c *gmailCache) GetHistoryIdxProgress() uint64 {
+	hidx := uint64(0)
+	if b, ok := c.Cache.Get(historyIndexProgress, "0"); ok {
+		hidx, _ = binary.Uvarint(b)
+	}
+	return hidx
+}
+
+func (c *gmailCache) SetHistoryIdxProgress(i uint64) {
+	b := make([]byte, 8)
+	binary.PutUvarint(b, i)
+	c.Cache.Set(historyIndexProgress, "0", b)
+}
+
+func (c *gmailCache) ClearHistoryIdxProgress() {
+	c.Cache.Del(historyIndexProgress, "0")
 }
