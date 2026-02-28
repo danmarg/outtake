@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/danmarg/outtake/lib/maildir"
 	_ "modernc.org/sqlite"
 )
 
@@ -115,7 +116,8 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 					resultCh <- res
 					continue
 				}
-				if err := g.downloadAndWriteListedMessage(item.Msg.MessageID); err != nil {
+				currentI := alreadyDone + int(item.Seq)
+				if err := g.downloadAndWriteListedMessage(item.Msg.MessageID, total, currentI); err != nil {
 					res.Failed = true
 					res.Err = err
 					resultCh <- res
@@ -208,8 +210,8 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 			if msgPerSec > 0 {
 				etaSec = float64(remainingItems) / msgPerSec
 			}
-			log.Printf("downloading-archived: perf progress=%d/%d %.2f%% eta=%.0fs done=%d downloaded=%d skipped=%d failed=%d rate=%.2f msg/s latency=%.3f s/msg",
-				processed, total, pct, etaSec, totalDone, downloaded, skipped, failed, msgPerSec, secPerMsg)
+			log.Printf("downloading-archived: perf progress=%d/%d %.2f%% eta=%s done=%d downloaded=%d skipped=%d failed=%d rate=%.2f msg/s latency=%.3f s/msg",
+				processed, total, pct, etaString(etaSec), totalDone, downloaded, skipped, failed, msgPerSec, secPerMsg)
 			lastPerfLog = time.Now()
 		}
 	}
@@ -304,7 +306,7 @@ func nextListedMessagesBatch(db *sql.DB, lastRespID int64, lastMsgID string, lim
 	return out, nil
 }
 
-func (g *Gmail) downloadAndWriteListedMessage(id string) error {
+func (g *Gmail) downloadAndWriteListedMessage(id string, total, currentI int) error {
 	op := g.handleNewMsg(id)
 	if op.Error != nil {
 		return op.Error
@@ -315,7 +317,19 @@ func (g *Gmail) downloadAndWriteListedMessage(id string) error {
 	if op.Operation != ADD {
 		return fmt.Errorf("unexpected operation for listed message %s: %d", id, op.Operation)
 	}
-	return g.writeOperation(op)
+
+	rank := total - currentI
+	if rank < 0 {
+		rank = 0
+	}
+	stableKey := maildir.Key(fmt.Sprintf("%09d.%s", rank, id))
+	k, err := g.dir.DeliverWithKey(op.Msg, stableKey)
+	if err != nil {
+		return err
+	}
+	g.cache.SetMsgLabels(op.Id, op.Labels)
+	g.cache.SetMsgKey(op.Id, k)
+	return nil
 }
 
 func maxInt(a, b int) int {
@@ -323,4 +337,18 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func etaString(seconds float64) string {
+	if seconds < 0 {
+		seconds = 0
+	}
+	d := time.Duration(seconds * float64(time.Second)).Round(time.Second)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%02d:%02d", m, s)
 }

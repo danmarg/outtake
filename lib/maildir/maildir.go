@@ -56,7 +56,16 @@ func (d Maildir) Deliver(m *mail.Message) (Key, error) {
 	k := strconv.FormatInt(time.Now().Unix(), 10) + "."
 	k += strconv.FormatInt(int64(pid), 10) + "_" + strconv.FormatUint(atomic.AddUint64(&cntr, 1), 10)
 	k += "." + hostname
-	key := Key(k)
+	return d.deliverWithKey(m, Key(k))
+}
+
+// DeliverWithKey delivers the message with a caller-provided stable key.
+func (d Maildir) DeliverWithKey(m *mail.Message, key Key) (Key, error) {
+	return d.deliverWithKey(m, key)
+}
+
+func (d Maildir) deliverWithKey(m *mail.Message, key Key) (Key, error) {
+	k := string(key)
 	f, err := os.Create(path.Join(d.dir, tmp, k))
 	if err != nil {
 		return key, err
