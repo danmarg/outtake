@@ -2,15 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/danmarg/outtake/lib"
 	"github.com/danmarg/outtake/lib/gmail"
 	"github.com/urfave/cli/v2"
 	"os"
-	"time"
-)
-
-const (
-	progressUpdateFreqSecs = 2.0
+	"path/filepath"
 )
 
 func main() {
@@ -76,30 +71,8 @@ func main() {
 		if err != nil {
 			return err
 		}
-		progress := make(chan lib.Progress)
-		go func() {
-			l := time.Time{}
-			start := time.Now()
-			for p := range progress {
-				if time.Since(l).Seconds() > progressUpdateFreqSecs {
-					l = time.Now()
-					pct := float32(0)
-					if p.Total > 0 {
-						pct = float32(p.Current) / float32(p.Total) * 100
-					}
-					elapsed := time.Since(start).Seconds()
-					msgPerSec := float64(0)
-					secsPerMsg := float64(0)
-					if elapsed > 0 && p.Current > 0 {
-						msgPerSec = float64(p.Current) / elapsed
-						secsPerMsg = elapsed / float64(p.Current)
-					}
-					fmt.Printf("\r%d / %d   %.2f%%   %.2f msg/s   %.3f s/msg", p.Current, p.Total, pct, msgPerSec, secsPerMsg)
-				}
-			}
-			fmt.Println()
-		}()
-		if err := g.Sync(ctx.Bool("full"), progress); err != nil {
+		dbPath := filepath.Join(d, ".outtake.v2.sqlite")
+		if err := g.SyncListPages(dbPath); err != nil {
 			fmt.Println(err)
 			os.Exit(-1)
 		}
