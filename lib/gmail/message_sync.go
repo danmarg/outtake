@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -50,11 +51,19 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 		log.Printf("downloading-archived: start from newest listed message")
 	}
 
+	total, err := ensureMaterializeTotalMessages(db)
+	if err != nil {
+		return err
+	}
 	remaining, err := countRemainingListedMessages(db, lastRespID, lastMsgID)
 	if err != nil {
 		return err
 	}
-	log.Printf("downloading-archived: queued=%d workers=%d", remaining, ConcurrentDownloads)
+	alreadyDone := total - remaining
+	if alreadyDone < 0 {
+		alreadyDone = 0
+	}
+	log.Printf("downloading-archived: queued=%d total=%d done=%d workers=%d", remaining, total, alreadyDone, ConcurrentDownloads)
 
 	start := time.Now()
 	lastPerfLog := time.Now()
@@ -187,10 +196,20 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 				elapsed = 0.001
 			}
 			totalDone := downloaded + skipped + failed
+			processed := alreadyDone + totalDone
+			pct := 0.0
+			if total > 0 {
+				pct = float64(processed) / float64(total) * 100.0
+			}
 			msgPerSec := float64(totalDone) / elapsed
 			secPerMsg := elapsed / float64(maxInt(totalDone, 1))
-			log.Printf("downloading-archived: perf done=%d downloaded=%d skipped=%d failed=%d rate=%.2f msg/s latency=%.3f s/msg",
-				totalDone, downloaded, skipped, failed, msgPerSec, secPerMsg)
+			remainingItems := maxInt(total-processed, 0)
+			etaSec := 0.0
+			if msgPerSec > 0 {
+				etaSec = float64(remainingItems) / msgPerSec
+			}
+			log.Printf("downloading-archived: perf progress=%d/%d %.2f%% eta=%.0fs done=%d downloaded=%d skipped=%d failed=%d rate=%.2f msg/s latency=%.3f s/msg",
+				processed, total, pct, etaSec, totalDone, downloaded, skipped, failed, msgPerSec, secPerMsg)
 			lastPerfLog = time.Now()
 		}
 	}
@@ -210,6 +229,34 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 	log.Printf("downloading-archived: complete downloaded=%d skipped=%d failed=%d elapsed=%.1fs rate=%.2f msg/s",
 		downloaded, skipped, failed, elapsed, float64(totalDone)/elapsed)
 	return nil
+}
+
+func ensureMaterializeTotalMessages(db *sql.DB) (int, error) {
+	if v, ok, err := getSyncState(db, syncStateMaterializeTotalMessages); err != nil {
+		return 0, err
+	} else if ok {
+		n, err := strconv.Atoi(v)
+		if err == nil {
+			return n, nil
+		}
+	}
+
+	var total int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM gmail_users_messages_list_response_messages`).Scan(&total); err != nil {
+		return 0, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	if err := setSyncState(tx, syncStateMaterializeTotalMessages, strconv.Itoa(total)); err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 func countRemainingListedMessages(db *sql.DB, lastRespID int64, lastMsgID string) (int, error) {

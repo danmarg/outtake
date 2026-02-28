@@ -11,6 +11,7 @@ const (
 	syncStateListDone                    = "sync.list.done"
 	syncStateMaterializeCursorResponseID = "sync.materialize.cursor.response_id"
 	syncStateMaterializeCursorMessageID  = "sync.materialize.cursor.message_id"
+	syncStateMaterializeTotalMessages    = "sync.materialize.total_messages"
 	syncStateHistoryCursorCommitted      = "sync.history.cursor.committed"
 	syncStateHistoryCursorProgress       = "sync.history.cursor.progress"
 	syncStateHistoryPageToken            = "sync.history.page_token"
