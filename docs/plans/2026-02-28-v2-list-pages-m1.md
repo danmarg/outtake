@@ -20,14 +20,14 @@ Files:
 - `lib/gmail/list_pages_test.go`
 - `architecture-v2-plan.md`
 
-- [ ] Add schema creation for:
+- [x] Add schema creation for:
   - `gmail_users_messages_list_requests`
   - `gmail_users_messages_list_responses`
   - `gmail_users_messages_list_response_messages`
   - `gmail_users_messages_index`
   - token table in SQLite
-- [ ] Add/adjust tests to verify schema exists.
-- [ ] Run: `go test ./lib/gmail -run TestEnsureListPagesSchema -v`
+- [x] Add/adjust tests to verify schema exists.
+- [x] Run: `go test ./lib/gmail -run TestEnsureListPagesSchema -v`
 
 ## Task 2: Resume cursor logic (latest request row)
 
@@ -35,9 +35,9 @@ Files:
 - `lib/gmail/list_pages_schema.go`
 - `lib/gmail/list_pages_test.go`
 
-- [ ] Implement helper to read resume token from latest request (`max(id)`).
-- [ ] Add test proving latest row wins.
-- [ ] Run: `go test ./lib/gmail -run TestGetResumePageTokenFromMaxRequestID -v`
+- [x] Implement helper to read resume token from latest request (`max(id)`).
+- [x] Add test proving latest row wins.
+- [x] Run: `go test ./lib/gmail -run TestGetResumePageTokenFromMaxRequestID -v`
 
 ## Task 3: Implement `SyncListPages`
 
@@ -52,10 +52,10 @@ Files:
   - persist request query (`q`) in `gmail_users_messages_list_requests`,
   - store request/response/messages in one transaction per page,
   - continue until `nextPageToken` empty.
-- [ ] Add tests for:
+- [x] Add tests for:
   - multi-page storage,
   - resume from existing DB.
-- [ ] Run: `go test ./lib/gmail -run TestSyncListPages -v`
+- [x] Run: `go test ./lib/gmail -run TestSyncListPages -v`
 
 ## Task 4: Make milestone 1 default behavior + token in SQLite
 
@@ -65,13 +65,13 @@ Files:
 - `lib/gmail/list_pages.go`
 - `README.md`
 
-- [ ] Route default sync path to list-pages sync.
-- [ ] Store/retrieve OAuth token in SQLite.
-- [ ] Add tests for token persistence.
-- [ ] Run: `go test ./lib/gmail -v`
+- [x] Route default sync path to list-pages sync.
+- [x] Store/retrieve OAuth token in SQLite.
+- [x] Add tests for token persistence.
+- [x] Run: `go test ./lib/gmail -v`
 
 ## Task 5: Verify
 
-- [ ] Run focused tests for list sync.
-- [ ] Run full suite: `go test ./...`
+- [x] Run focused tests for list sync.
+- [x] Run full suite: `go test ./...`
 - [ ] Manual smoke run: `go run . --directory <maildir>` and confirm DB grows page-by-page.
