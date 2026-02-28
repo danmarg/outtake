@@ -48,7 +48,8 @@ Files:
 
 - [ ] Implement page loop:
   - read resume token,
-  - call `Users.Messages.List`,
+  - call `Users.Messages.List` with query filter `q = "-in:chats"`,
+  - persist request query (`q`) in `gmail_users_messages_list_requests`,
   - store request/response/messages in one transaction per page,
   - continue until `nextPageToken` empty.
 - [ ] Add tests for:
