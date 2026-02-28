@@ -1,77 +1,61 @@
-# V2 List Pages Milestone 1 Plan
+# V2 Milestone 1 Plan (Minimal Page Cursor)
 
 ## Goal
-Default sync in v2 should:
-- list all Gmail pages (`Users.Messages.List`) into SQLite,
-- resume from latest stored page,
-- store OAuth token in SQLite.
+Keep SQLite minimal:
+- store list-page resume cursor,
+- store OAuth token,
+- do not store per-message corpus in SQLite.
 
-## Scope
-- No body download.
-- No history sync.
-- No special CLI mode; this is the default sync path.
+Maildir remains the message store.
+
+## Minimal schema
+
+- `sync_state(key, value, updatedAtMs)`
+- `oauth_tokens(account, tokenType, accessToken, refreshToken, expiryUnixMs, scope, rawJson, updatedAtMs)`
+
+## Cursor keys
+
+- `users.messages.list.nextPageToken`
+- `users.messages.list.done`
 
 ---
 
-## Task 1: SQLite schema for list sync
+## Task 1: Remove unneeded list corpus schemas
 
 Files:
 - `lib/gmail/list_pages_schema.go`
 - `lib/gmail/list_pages_test.go`
-- `architecture-v2-plan.md`
 
-- [x] Add schema creation for:
+- [ ] Remove schema creation for:
   - `gmail_users_messages_list_requests`
   - `gmail_users_messages_list_responses`
   - `gmail_users_messages_list_response_messages`
   - `gmail_users_messages_index`
-  - token table in SQLite
-- [x] Add/adjust tests to verify schema exists.
-- [x] Run: `go test ./lib/gmail -run TestEnsureListPagesSchema -v`
+- [ ] Keep only `sync_state` and `oauth_tokens`.
+- [ ] Update schema tests accordingly.
 
-## Task 2: Resume cursor logic (latest request row)
+## Task 2: Switch resume logic to `sync_state` cursor
 
 Files:
 - `lib/gmail/list_pages_schema.go`
+- `lib/gmail/list_pages.go`
 - `lib/gmail/list_pages_test.go`
 
-- [x] Implement helper to read resume token from latest request (`max(id)`).
-- [x] Add test proving latest row wins.
-- [x] Run: `go test ./lib/gmail -run TestGetResumePageTokenFromMaxRequestID -v`
+- [ ] Replace "latest request row" resume logic with `sync_state['users.messages.list.nextPageToken']`.
+- [ ] Mark done with `sync_state['users.messages.list.done']='1'` when token is empty.
+- [ ] Add tests for cursor-based resume and completion handling.
 
-## Task 3: Implement `SyncListPages`
+## Task 3: Keep list phase operational with minimal persistence
 
 Files:
 - `lib/gmail/list_pages.go`
-- `lib/gmail/gmail.go`
-- `lib/gmail/list_pages_test.go`
 
-- [ ] Implement page loop:
-  - read resume token,
-  - call `Users.Messages.List` with query filter `q = "-in:chats"`,
-  - persist request query (`q`) in `gmail_users_messages_list_requests`,
-  - store request/response/messages in one transaction per page,
-  - continue until `nextPageToken` empty.
-- [x] Add tests for:
-  - multi-page storage,
-  - resume from existing DB.
-- [x] Run: `go test ./lib/gmail -run TestSyncListPages -v`
+- [ ] Keep paging loop and logging.
+- [ ] Persist only cursor updates per page (no response/message row inserts).
+- [ ] Ensure oauth token persistence still works.
 
-## Task 4: Make milestone 1 default behavior + token in SQLite
+## Task 4: Verify
 
-Files:
-- `main.go`
-- `lib/gmail/gmail.go`
-- `lib/gmail/list_pages.go`
-- `README.md`
-
-- [x] Route default sync path to list-pages sync.
-- [x] Store/retrieve OAuth token in SQLite.
-- [x] Add tests for token persistence.
-- [x] Run: `go test ./lib/gmail -v`
-
-## Task 5: Verify
-
-- [x] Run focused tests for list sync.
-- [x] Run full suite: `go test ./...`
-- [ ] Manual smoke run: `go run . --directory <maildir>` and confirm DB grows page-by-page.
+- [ ] Run focused tests: `go test ./lib/gmail -v`
+- [ ] Run full suite: `go test ./...`
+- [ ] Manual smoke run: `go run . --directory <maildir>` and confirm cursor advances in SQLite.
