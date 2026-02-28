@@ -546,10 +546,6 @@ func (g *Gmail) full(reset bool) error {
 	pageStart := g.cache.GetFullSyncPageToken()
 	totalEstimate := g.cache.GetFullSyncTotalEstimate()
 	opsDone := g.cache.GetFullSyncOpsDone()
-	if totalEstimate < opsDone {
-		totalEstimate = opsDone
-		g.cache.SetFullSyncTotalEstimate(totalEstimate)
-	}
 	go func() {
 		defer close(newMsgs)
 		page := pageStart
@@ -593,9 +589,6 @@ func (g *Gmail) full(reset bool) error {
 		i++
 		if g.progress != nil {
 			total := g.cache.GetFullSyncTotalEstimate()
-			if total < uint64(i) {
-				total = uint64(i)
-			}
 			g.progress <- lib.Progress{Current: i, Total: uint(total)}
 		}
 		if historyId > 0 {
