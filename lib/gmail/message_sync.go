@@ -125,6 +125,7 @@ func (g *Gmail) SyncListedMessagesWithDB(db *sql.DB) error {
 	}()
 
 	var downloaded, skipped, failed int
+	skippedNoticeLogged := false
 	nextToApply := int64(1)
 	pending := map[int64]phase2Result{}
 	var latestCheckpoint listedMessage
@@ -188,8 +189,8 @@ func (g *Gmail) SyncListedMessagesWithDB(db *sql.DB) error {
 			if elapsed <= 0 {
 				elapsed = 0.001
 			}
-			totalDone := downloaded + skipped + failed
-			processed := alreadyDone + totalDone
+			processedRun := downloaded + skipped + failed
+			processed := alreadyDone + processedRun
 			pct := 0.0
 			if total > 0 {
 				pct = float64(processed) / float64(total) * 100.0
@@ -201,8 +202,12 @@ func (g *Gmail) SyncListedMessagesWithDB(db *sql.DB) error {
 			if rateDownloaded > 0 {
 				etaSec = float64(remainingItems) / rateDownloaded
 			}
-			log.Printf("downloading-archived: perf progress=%d/%d %.2f%% eta=%s done=%d downloaded=%d skipped=%d failed=%d rate_downloaded=%.2f msg/s latency=%.3f s/msg",
-				processed, total, pct, etaString(etaSec), totalDone, downloaded, skipped, failed, rateDownloaded, secPerMsg)
+			log.Printf("downloading-archived: perf progress=%d/%d %.2f%% eta=%s downloaded=%d failed=%d rate_downloaded=%.2f msg/s latency=%.3f s/msg",
+				processed, total, pct, etaString(etaSec), downloaded, failed, rateDownloaded, secPerMsg)
+			if skipped > 0 && !skippedNoticeLogged {
+				log.Printf("downloading-archived: note skipped=%d (already present from replay after resume)", skipped)
+				skippedNoticeLogged = true
+			}
 			lastPerfLog = time.Now()
 		}
 	}
@@ -218,8 +223,11 @@ func (g *Gmail) SyncListedMessagesWithDB(db *sql.DB) error {
 	if elapsed <= 0 {
 		elapsed = 0.001
 	}
-	log.Printf("downloading-archived: complete downloaded=%d skipped=%d failed=%d elapsed=%.1fs rate_downloaded=%.2f msg/s",
-		downloaded, skipped, failed, elapsed, float64(downloaded)/elapsed)
+	if skipped > 0 && !skippedNoticeLogged {
+		log.Printf("downloading-archived: note skipped=%d (already present from replay after resume)", skipped)
+	}
+	log.Printf("downloading-archived: complete downloaded=%d failed=%d elapsed=%.1fs rate_downloaded=%.2f msg/s",
+		downloaded, failed, elapsed, float64(downloaded)/elapsed)
 	return nil
 }
 
