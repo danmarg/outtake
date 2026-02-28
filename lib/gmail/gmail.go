@@ -637,15 +637,16 @@ func (g *Gmail) Sync(full bool, progress chan<- lib.Progress) error {
 			return runIncremental(committed, "history_index")
 		}
 		if g.cache.GetFullSyncActive() {
-			log.Printf("resume source: full_sync_session (history_index_progress=%d is not a safe resume token for partial full sync)", progressIdx)
-		} else if progressIdx > 0 {
-			log.Printf("stale history_index_progress=%d present but no full_sync_session state; starting full sync from scratch", progressIdx)
+			log.Printf("sync mode: full resume (interrupted full-sync session detected; progress_index=%d is informational only)", progressIdx)
+			return g.full(false)
 		}
+		if progressIdx > 0 {
+			log.Printf("sync mode: full fresh (stale progress_index=%d found without full-sync session)", progressIdx)
+		} else {
+			log.Println("sync mode: full fresh (no committed history index)")
+		}
+		return g.full(false)
 	}
-	if full {
-		log.Println("sync mode: forced full (--full)")
-	} else {
-		log.Println("sync mode: full (no history index checkpoint available)")
-	}
-	return g.full(full)
+	log.Println("sync mode: forced full (--full)")
+	return g.full(true)
 }

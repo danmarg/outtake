@@ -24,15 +24,15 @@ type BoltCache struct {
 
 func NewBoltCache(path string) (BoltCache, error) {
 	db, err := bolt.Open(path, 0666, nil)
-	c := BoltCache{db: db, diagSlow: 50 * time.Millisecond}
+	c := BoltCache{db: db, diagSlow: 200 * time.Millisecond}
 	return c, err
 }
 
 func (c BoltCache) logWrite(op, ns, k string, start time.Time) {
 	d := time.Since(start)
 	threshold := c.diagSlow
-	if ns == "full_sync_seen" && threshold < 100*time.Millisecond {
-		threshold = 100 * time.Millisecond
+	if ns == "full_sync_seen" && threshold < 500*time.Millisecond {
+		threshold = 500 * time.Millisecond
 	}
 	if threshold > 0 && d < threshold {
 		return
