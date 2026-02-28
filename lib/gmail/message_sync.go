@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -12,6 +13,20 @@ import (
 type listedMessage struct {
 	ResponseID int64
 	MessageID  string
+}
+
+type phase2WorkItem struct {
+	Seq int64
+	Msg listedMessage
+}
+
+type phase2Result struct {
+	Seq        int64
+	Msg        listedMessage
+	Downloaded bool
+	Skipped    bool
+	Failed     bool
+	Err        error
 }
 
 func (g *Gmail) SyncListedMessages(dbPath string) error {
@@ -35,59 +50,156 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 		log.Printf("phase2: start from newest listed message")
 	}
 
-	var downloaded, skipped, failed int
+	remaining, err := countRemainingListedMessages(db, lastRespID, lastMsgID)
+	if err != nil {
+		return err
+	}
+	log.Printf("phase2: queued=%d workers=%d", remaining, ConcurrentDownloads)
+
 	start := time.Now()
 	lastPerfLog := time.Now()
+	lastCheckpointFlush := time.Now()
+	checkpointFlushEvery := 50
+	checkpointFlushInterval := 2 * time.Second
 
-	for {
-		batch, err := nextListedMessagesBatch(db, lastRespID, lastMsgID, 200)
+	workCh := make(chan phase2WorkItem, MessageBufferSize)
+	resultCh := make(chan phase2Result, MessageBufferSize)
+
+	// Producer
+	prodErrCh := make(chan error, 1)
+	go func() {
+		defer close(workCh)
+		seq := int64(1)
+		cursorResp, cursorMsg := lastRespID, lastMsgID
+		for {
+			batch, err := nextListedMessagesBatch(db, cursorResp, cursorMsg, 500)
+			if err != nil {
+				prodErrCh <- err
+				return
+			}
+			if len(batch) == 0 {
+				prodErrCh <- nil
+				return
+			}
+			for _, m := range batch {
+				workCh <- phase2WorkItem{Seq: seq, Msg: m}
+				seq++
+				cursorResp, cursorMsg = m.ResponseID, m.MessageID
+			}
+		}
+	}()
+
+	// Workers
+	workers := ConcurrentDownloads
+	if workers < 1 {
+		workers = 1
+	}
+	wg := sync.WaitGroup{}
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range workCh {
+				res := phase2Result{Seq: item.Seq, Msg: item.Msg}
+				if _, exists := g.cache.GetMsgKey(item.Msg.MessageID); exists {
+					res.Skipped = true
+					resultCh <- res
+					continue
+				}
+				if err := g.downloadAndWriteListedMessage(item.Msg.MessageID); err != nil {
+					res.Failed = true
+					res.Err = err
+					resultCh <- res
+					continue
+				}
+				res.Downloaded = true
+				resultCh <- res
+			}
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	var downloaded, skipped, failed int
+	nextToApply := int64(1)
+	pending := map[int64]phase2Result{}
+	var latestCheckpoint listedMessage
+	haveCheckpoint := false
+	unflushedApplied := 0
+
+	flushCheckpoint := func(force bool) error {
+		if !haveCheckpoint {
+			return nil
+		}
+		if !force && unflushedApplied < checkpointFlushEvery && time.Since(lastCheckpointFlush) < checkpointFlushInterval {
+			return nil
+		}
+		tx, err := db.Begin()
 		if err != nil {
 			return err
 		}
-		if len(batch) == 0 {
-			break
+		if err := setMaterializeCheckpoint(tx, latestCheckpoint.ResponseID, latestCheckpoint.MessageID); err != nil {
+			tx.Rollback()
+			return err
 		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		unflushedApplied = 0
+		lastCheckpointFlush = time.Now()
+		return nil
+	}
 
-		for _, item := range batch {
-			if _, exists := g.cache.GetMsgKey(item.MessageID); exists {
-				skipped++
-			} else {
-				if err := g.downloadAndWriteListedMessage(item.MessageID); err != nil {
-					failed++
-					log.Printf("phase2: message=%s failed: %v", item.MessageID, err)
-					continue
-				}
+	for r := range resultCh {
+		pending[r.Seq] = r
+
+		for {
+			curr, ok := pending[nextToApply]
+			if !ok {
+				break
+			}
+			delete(pending, nextToApply)
+			nextToApply++
+
+			if curr.Downloaded {
 				downloaded++
+			} else if curr.Skipped {
+				skipped++
+			} else if curr.Failed {
+				failed++
+				log.Printf("phase2: message=%s failed: %v", curr.Msg.MessageID, curr.Err)
 			}
 
-			tx, err := db.Begin()
-			if err != nil {
-				return err
-			}
-			if err := setMaterializeCheckpoint(tx, item.ResponseID, item.MessageID); err != nil {
-				tx.Rollback()
-				return err
-			}
-			if err := tx.Commit(); err != nil {
-				return err
-			}
-
-			lastRespID = item.ResponseID
-			lastMsgID = item.MessageID
-
-			if time.Since(lastPerfLog) >= 2*time.Second {
-				elapsed := time.Since(start).Seconds()
-				if elapsed <= 0 {
-					elapsed = 0.001
-				}
-				totalDone := downloaded + skipped + failed
-				msgPerSec := float64(totalDone) / elapsed
-				secPerMsg := elapsed / float64(maxInt(totalDone, 1))
-				log.Printf("phase2: perf done=%d downloaded=%d skipped=%d failed=%d rate=%.2f msg/s latency=%.3f s/msg",
-					totalDone, downloaded, skipped, failed, msgPerSec, secPerMsg)
-				lastPerfLog = time.Now()
-			}
+			latestCheckpoint = curr.Msg
+			haveCheckpoint = true
+			unflushedApplied++
 		}
+
+		if err := flushCheckpoint(false); err != nil {
+			return err
+		}
+
+		if time.Since(lastPerfLog) >= 2*time.Second {
+			elapsed := time.Since(start).Seconds()
+			if elapsed <= 0 {
+				elapsed = 0.001
+			}
+			totalDone := downloaded + skipped + failed
+			msgPerSec := float64(totalDone) / elapsed
+			secPerMsg := elapsed / float64(maxInt(totalDone, 1))
+			log.Printf("phase2: perf done=%d downloaded=%d skipped=%d failed=%d rate=%.2f msg/s latency=%.3f s/msg",
+				totalDone, downloaded, skipped, failed, msgPerSec, secPerMsg)
+			lastPerfLog = time.Now()
+		}
+	}
+
+	if err := flushCheckpoint(true); err != nil {
+		return err
+	}
+	if err := <-prodErrCh; err != nil {
+		return err
 	}
 
 	elapsed := time.Since(start).Seconds()
@@ -98,6 +210,20 @@ func (g *Gmail) SyncListedMessages(dbPath string) error {
 	log.Printf("phase2: complete downloaded=%d skipped=%d failed=%d elapsed=%.1fs rate=%.2f msg/s",
 		downloaded, skipped, failed, elapsed, float64(totalDone)/elapsed)
 	return nil
+}
+
+func countRemainingListedMessages(db *sql.DB, lastRespID int64, lastMsgID string) (int, error) {
+	q := `SELECT COUNT(*) FROM gmail_users_messages_list_response_messages`
+	args := []interface{}{}
+	if lastRespID > 0 {
+		q += ` WHERE (responseId < ?) OR (responseId = ? AND id < ?)`
+		args = append(args, lastRespID, lastRespID, lastMsgID)
+	}
+	var n int
+	if err := db.QueryRow(q, args...).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 func nextListedMessagesBatch(db *sql.DB, lastRespID int64, lastMsgID string, limit int) ([]listedMessage, error) {
