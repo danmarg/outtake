@@ -576,12 +576,6 @@ func (g *Gmail) full() error {
 		if err := g.writeOperation(o); err != nil {
 			return err
 		}
-		if historyId > 0 {
-			g.cache.SetHistoryIdxProgress(historyId)
-			if i%1000 == 0 {
-				log.Printf("full sync checkpoint: history_index_progress=%d (ops=%d)", historyId, i)
-			}
-		}
 	}
 	is := make(chan string)
 	g.cache.GetMsgs(is)
@@ -625,7 +619,7 @@ func (g *Gmail) Sync(full bool, progress chan<- lib.Progress) error {
 
 	if !full {
 		if progressIdx > 0 {
-			return runIncremental(progressIdx, "history_index_progress")
+			log.Printf("ignoring history_index_progress=%d (resume disabled pending correctness fix)", progressIdx)
 		}
 		if committed > 0 {
 			return runIncremental(committed, "history_index")
