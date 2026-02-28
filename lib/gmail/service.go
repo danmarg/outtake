@@ -38,7 +38,8 @@ func newRestGmailService(svc *gmail.UsersService) *restGmailService {
 		limiter: lib.RateLimit{Period: time.Second,
 			Rate:         maxQps,
 			BackoffLimit: maxRetries,
-			BackoffStart: time.Second}}
+			BackoffStart: 250 * time.Millisecond,
+			BackoffMax:   5 * time.Second}}
 	r.limiter.Start()
 	return r
 }

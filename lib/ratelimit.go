@@ -12,6 +12,7 @@ type RateLimit struct {
 	Rate         uint
 	BackoffLimit uint
 	BackoffStart time.Duration
+	BackoffMax   time.Duration
 	toks         chan struct{}
 	paused       bool
 }
@@ -47,8 +48,12 @@ func (r *RateLimit) TryGet() bool {
 	}
 }
 
-func backoffDuration(start time.Duration, attempt uint) time.Duration {
-	return start * time.Duration(1<<attempt)
+func backoffDuration(start time.Duration, attempt uint, max time.Duration) time.Duration {
+	d := start * time.Duration(1<<attempt)
+	if max > 0 && d > max {
+		return max
+	}
+	return d
 }
 
 func (r *RateLimit) DoWithBackoff(f func() (err error, fatal bool)) error {
@@ -60,8 +65,8 @@ func (r *RateLimit) DoWithBackoff(f func() (err error, fatal bool)) error {
 		if err == nil || fatal {
 			return err
 		}
-		s := backoffDuration(r.BackoffStart, i)
-		log.Println("DoWithBackoff error: sleeping for", s)
+		s := backoffDuration(r.BackoffStart, i, r.BackoffMax)
+		log.Printf("DoWithBackoff error (attempt %d/%d): sleeping for %v", i+1, r.BackoffLimit, s)
 		time.Sleep(s)
 	}
 	return err

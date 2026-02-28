@@ -79,10 +79,22 @@ func main() {
 		progress := make(chan lib.Progress)
 		go func() {
 			l := time.Time{}
+			start := time.Now()
 			for p := range progress {
 				if time.Since(l).Seconds() > progressUpdateFreqSecs {
 					l = time.Now()
-					fmt.Printf("\r%d / %d   %.2f%%  ", p.Current, p.Total, float32(p.Current)/float32(p.Total)*100)
+					pct := float32(0)
+					if p.Total > 0 {
+						pct = float32(p.Current) / float32(p.Total) * 100
+					}
+					elapsed := time.Since(start).Seconds()
+					msgPerSec := float64(0)
+					secsPerMsg := float64(0)
+					if elapsed > 0 && p.Current > 0 {
+						msgPerSec = float64(p.Current) / elapsed
+						secsPerMsg = elapsed / float64(p.Current)
+					}
+					fmt.Printf("\r%d / %d   %.2f%%   %.2f msg/s   %.3f s/msg", p.Current, p.Total, pct, msgPerSec, secsPerMsg)
 				}
 			}
 			fmt.Println()
