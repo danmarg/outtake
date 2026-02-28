@@ -524,7 +524,7 @@ func (g *Gmail) full(reset bool) error {
 		g.cache.SetFullSyncActive(true)
 		log.Printf("Performing full sync (resuming=false).")
 	} else {
-		log.Printf("Performing full sync (resuming=true; restore page_token=%q highest_history=%d ops_done=%d total_estimate=%d).", g.cache.GetFullSyncPageToken(), g.cache.GetFullSyncHighestHistory(), g.cache.GetFullSyncOpsDone(), g.cache.GetFullSyncTotalEstimate())
+		log.Printf("Performing full sync (resuming=true; restore page_token=%q highest_history=%d).", g.cache.GetFullSyncPageToken(), g.cache.GetFullSyncHighestHistory())
 	}
 	// XXX: -in:chats to skip chats that aren't MIME messages.
 	newMsgs := make(chan string, MessageBufferSize)
@@ -544,8 +544,7 @@ func (g *Gmail) full(reset bool) error {
 		close(ops)
 	}()
 	pageStart := g.cache.GetFullSyncPageToken()
-	totalEstimate := g.cache.GetFullSyncTotalEstimate()
-	opsDone := g.cache.GetFullSyncOpsDone()
+	t := uint(0) // Total count, for progress reporting.
 	go func() {
 		defer close(newMsgs)
 		page := pageStart
@@ -557,11 +556,7 @@ func (g *Gmail) full(reset bool) error {
 			}
 			page = r.NextPageToken
 			g.cache.SetFullSyncPageToken(page)
-			estimate := uint64(r.ResultSizeEstimate)
-			if estimate > totalEstimate {
-				totalEstimate = estimate
-				g.cache.SetFullSyncTotalEstimate(totalEstimate)
-			}
+			t += uint(r.ResultSizeEstimate)
 			for _, m := range r.Messages {
 				newMsgs <- m.Id
 				g.cache.AddFullSyncSeen(m.Id)
@@ -572,8 +567,13 @@ func (g *Gmail) full(reset bool) error {
 		}
 	}()
 	historyId := g.cache.GetFullSyncHighestHistory()
-	i := uint(opsDone) // For updating progress bar across resumes.
+	i := uint(0) // For updating progress bar.
 	for o := range ops {
+		// Update progress bar.
+		if g.progress != nil {
+			g.progress <- lib.Progress{Current: i, Total: t}
+		}
+		i++
 		if o.Error != nil {
 			return o.Error
 		}
@@ -586,19 +586,11 @@ func (g *Gmail) full(reset bool) error {
 		if err := g.writeOperation(o); err != nil {
 			return err
 		}
-		i++
-		if g.progress != nil {
-			total := g.cache.GetFullSyncTotalEstimate()
-			g.progress <- lib.Progress{Current: i, Total: uint(total)}
-		}
 		if historyId > 0 {
 			g.cache.SetFullSyncHighestHistory(historyId)
-		}
-		if i%200 == 0 {
-			g.cache.SetFullSyncOpsDone(uint64(i))
-		}
-		if i%1000 == 0 {
-			log.Printf("full sync checkpoint: highest_history=%d ops_done=%d total_estimate=%d", historyId, i, g.cache.GetFullSyncTotalEstimate())
+			if i%1000 == 0 {
+				log.Printf("full sync checkpoint: highest_history=%d (ops=%d)", historyId, i)
+			}
 		}
 	}
 	is := make(chan string)
@@ -610,12 +602,10 @@ func (g *Gmail) full(reset bool) error {
 			}
 		}
 	}
-	finalTotal := g.cache.GetFullSyncTotalEstimate()
-	g.cache.SetFullSyncOpsDone(uint64(i))
 	g.cache.SetHistoryIdx(historyId)
 	g.cache.ClearHistoryIdxProgress()
 	g.cache.ClearFullSyncSession()
-	log.Printf("full sync complete: history_index=%d ops_done=%d total_estimate=%d (cleared full-sync session)", historyId, i, finalTotal)
+	log.Printf("full sync complete: history_index=%d (cleared full-sync session)", historyId)
 	return nil
 }
 

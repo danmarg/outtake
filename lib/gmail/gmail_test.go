@@ -143,8 +143,6 @@ func TestFullSyncSessionRoundTrip(t *testing.T) {
 	c.SetFullSyncActive(true)
 	c.SetFullSyncPageToken("abc")
 	c.SetFullSyncHighestHistory(99)
-	c.SetFullSyncOpsDone(123)
-	c.SetFullSyncTotalEstimate(456)
 	c.AddFullSyncSeen("m1")
 
 	if !c.GetFullSyncActive() {
@@ -155,12 +153,6 @@ func TestFullSyncSessionRoundTrip(t *testing.T) {
 	}
 	if got := c.GetFullSyncHighestHistory(); got != 99 {
 		t.Errorf("GetFullSyncHighestHistory() = %v, expected 99", got)
-	}
-	if got := c.GetFullSyncOpsDone(); got != 123 {
-		t.Errorf("GetFullSyncOpsDone() = %v, expected 123", got)
-	}
-	if got := c.GetFullSyncTotalEstimate(); got != 456 {
-		t.Errorf("GetFullSyncTotalEstimate() = %v, expected 456", got)
 	}
 	if !c.FullSyncSeen("m1") {
 		t.Error("FullSyncSeen(m1) = false, expected true")
@@ -175,12 +167,6 @@ func TestFullSyncSessionRoundTrip(t *testing.T) {
 	}
 	if got := c.GetFullSyncHighestHistory(); got != 0 {
 		t.Errorf("GetFullSyncHighestHistory() after clear = %v, expected 0", got)
-	}
-	if got := c.GetFullSyncOpsDone(); got != 0 {
-		t.Errorf("GetFullSyncOpsDone() after clear = %v, expected 0", got)
-	}
-	if got := c.GetFullSyncTotalEstimate(); got != 0 {
-		t.Errorf("GetFullSyncTotalEstimate() after clear = %v, expected 0", got)
 	}
 	if c.FullSyncSeen("m1") {
 		t.Error("FullSyncSeen(m1) after clear = true, expected false")
