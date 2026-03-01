@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/danmarg/outtake/lib/maildir"
 	"google.golang.org/api/googleapi"
 )
 
@@ -40,6 +39,7 @@ func (g *Gmail) SyncHistoryWithDB(db *sql.DB) error {
 	lastPerf := time.Now()
 	maxSeen := cursor
 	var added, deleted, labeled, events int
+	var labelsMissingFile, labelsMissingState, labelsFailed int
 	labelsRefreshedOnMiss := false
 	var labelsRefreshMu sync.Mutex
 
@@ -80,7 +80,7 @@ func (g *Gmail) SyncHistoryWithDB(db *sql.DB) error {
 				if d.Message == nil || d.Message.Id == "" {
 					continue
 				}
-				if err := g.writeDel(d.Message.Id); err == nil {
+				if err := g.deleteMessageByID(d.Message.Id); err == nil {
 					deleted++
 				}
 			}
@@ -88,16 +88,38 @@ func (g *Gmail) SyncHistoryWithDB(db *sql.DB) error {
 				if l.Message == nil || l.Message.Id == "" {
 					continue
 				}
-				if err := g.writeLabels(l.Message.Id, g.computeLabels(l.Message.Id, l.LabelIds, nil)); err == nil {
+				applied, missingFile, missingState, err := g.applyHistoryLabelDelta(db, l.Message.Id, l.LabelIds, nil, &labelsRefreshedOnMiss, &labelsRefreshMu)
+				if err != nil {
+					labelsFailed++
+					continue
+				}
+				if applied {
 					labeled++
+				}
+				if missingFile {
+					labelsMissingFile++
+				}
+				if missingState {
+					labelsMissingState++
 				}
 			}
 			for _, l := range h.LabelsRemoved {
 				if l.Message == nil || l.Message.Id == "" {
 					continue
 				}
-				if err := g.writeLabels(l.Message.Id, g.computeLabels(l.Message.Id, nil, l.LabelIds)); err == nil {
+				applied, missingFile, missingState, err := g.applyHistoryLabelDelta(db, l.Message.Id, nil, l.LabelIds, &labelsRefreshedOnMiss, &labelsRefreshMu)
+				if err != nil {
+					labelsFailed++
+					continue
+				}
+				if applied {
 					labeled++
+				}
+				if missingFile {
+					labelsMissingFile++
+				}
+				if missingState {
+					labelsMissingState++
 				}
 			}
 		}
@@ -112,8 +134,8 @@ func (g *Gmail) SyncHistoryWithDB(db *sql.DB) error {
 			if elapsed <= 0 {
 				elapsed = 0.001
 			}
-			log.Printf("history: perf events=%d added=%d deleted=%d labels=%d rate=%.2f ev/s cursor=%d page=%t elapsed=%.1fs",
-				events, added, deleted, labeled, float64(events)/elapsed, maxSeen, pageToken != "", elapsed)
+			log.Printf("history: perf events=%d added=%d deleted=%d labels_applied=%d labels_missing_file=%d labels_missing_state=%d labels_failed=%d rate=%.2f ev/s cursor=%d page=%t elapsed=%.1fs",
+				events, added, deleted, labeled, labelsMissingFile, labelsMissingState, labelsFailed, float64(events)/elapsed, maxSeen, pageToken != "", elapsed)
 			lastPerf = time.Now()
 		}
 
@@ -129,8 +151,8 @@ func (g *Gmail) SyncHistoryWithDB(db *sql.DB) error {
 	if elapsed <= 0 {
 		elapsed = 0.001
 	}
-	log.Printf("history: complete cursor=%d events=%d added=%d deleted=%d labels=%d elapsed=%.1fs rate=%.2f ev/s",
-		maxSeen, events, added, deleted, labeled, elapsed, float64(events)/elapsed)
+	log.Printf("history: complete cursor=%d events=%d added=%d deleted=%d labels_applied=%d labels_missing_file=%d labels_missing_state=%d labels_failed=%d elapsed=%.1fs rate=%.2f ev/s",
+		maxSeen, events, added, deleted, labeled, labelsMissingFile, labelsMissingState, labelsFailed, elapsed, float64(events)/elapsed)
 	return nil
 }
 
@@ -225,7 +247,7 @@ func (g *Gmail) bootstrapHistoryCursor(db *sql.DB) (uint64, error) {
 }
 
 func (g *Gmail) downloadAndWriteHistoryMessage(db *sql.DB, id string, labelsRefreshedOnMiss *bool, labelsRefreshMu *sync.Mutex) (bool, error) {
-	k := maildir.Key(fmt.Sprintf("history.%s", id))
+	k := messageMaildirKey(id)
 	if _, err := g.dir.GetFile(k); err == nil {
 		return false, nil
 	}
@@ -247,5 +269,51 @@ func (g *Gmail) downloadAndWriteHistoryMessage(db *sql.DB, id string, labelsRefr
 	if _, err := g.dir.DeliverWithKey(op.Msg, k); err != nil {
 		return false, err
 	}
+	if err := replaceMessageLabels(db, id, op.Labels); err != nil {
+		return false, err
+	}
 	return true, nil
+}
+
+func (g *Gmail) deleteMessageByID(id string) error {
+	k := messageMaildirKey(id)
+	if err := g.dir.Delete(k); err == nil {
+		return nil
+	}
+	return g.writeDel(id)
+}
+
+func (g *Gmail) applyHistoryLabelDelta(db *sql.DB, id string, add, remove []string, labelsRefreshedOnMiss *bool, labelsRefreshMu *sync.Mutex) (applied bool, missingFile bool, missingState bool, err error) {
+	labels, err := getMessageLabels(db, id)
+	if err != nil {
+		return false, false, false, err
+	}
+	if len(labels) == 0 {
+		return false, false, true, nil
+	}
+	if err := applyLabelDelta(db, id, add, remove); err != nil {
+		return false, false, false, err
+	}
+	labels, err = getMessageLabels(db, id)
+	if err != nil {
+		return false, false, false, err
+	}
+	mapped, err := g.resolveArchivedLabels(db, labels, labelsRefreshedOnMiss, labelsRefreshMu)
+	if err != nil {
+		return false, false, false, err
+	}
+	k := messageMaildirKey(id)
+	msg, c, err := g.getMaildirMessage(k)
+	if err != nil {
+		return false, true, false, nil
+	}
+	defer c.Close()
+	msg.Header[labelsHeader] = mapped
+	if err := g.dir.Delete(k); err != nil {
+		return false, false, false, err
+	}
+	if _, err := g.dir.DeliverWithKey(msg, k); err != nil {
+		return false, false, false, err
+	}
+	return true, false, false, nil
 }

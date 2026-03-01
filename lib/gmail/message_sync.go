@@ -328,7 +328,9 @@ func queryListedMessages(db *sql.DB, query string, args []interface{}, capHint i
 }
 
 func (g *Gmail) downloadAndWriteListedMessage(db *sql.DB, id string, total, currentI int, labelsRefreshedOnMiss *bool, labelsRefreshMu *sync.Mutex) (bool, bool, error) {
-	stableKey := stableArchiveKey(total, currentI, id)
+	_ = total
+	_ = currentI
+	stableKey := messageMaildirKey(id)
 	if _, err := g.dir.GetFile(stableKey); err == nil {
 		return false, true, nil
 	}
@@ -351,6 +353,9 @@ func (g *Gmail) downloadAndWriteListedMessage(db *sql.DB, id string, total, curr
 	op.Msg.Header[labelsHeader] = mappedLabels
 
 	if _, err := g.dir.DeliverWithKey(op.Msg, stableKey); err != nil {
+		return false, false, err
+	}
+	if err := replaceMessageLabels(db, id, op.Labels); err != nil {
 		return false, false, err
 	}
 	return true, false, nil
@@ -403,11 +408,11 @@ func (g *Gmail) refreshLabelsInDB(db *sql.DB) error {
 }
 
 func stableArchiveKey(total, currentI int, id string) maildir.Key {
-	rank := total - currentI
-	if rank < 0 {
-		rank = 0
-	}
-	return maildir.Key(fmt.Sprintf("%09d.%s", rank, id))
+	return messageMaildirKey(id)
+}
+
+func messageMaildirKey(id string) maildir.Key {
+	return maildir.Key(fmt.Sprintf("%s.mail", id))
 }
 
 func maxInt(a, b int) int {

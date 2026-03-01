@@ -2,6 +2,7 @@ package gmail
 
 import (
 	"database/sql"
+	"sort"
 	"time"
 
 	gmailapi "google.golang.org/api/gmail/v1"
@@ -61,4 +62,74 @@ func resolveLabelNames(db *sql.DB, ids []string) (mapped []string, hadUnknown bo
 		}
 	}
 	return mapped, hadUnknown, nil
+}
+
+func replaceMessageLabels(db *sql.DB, messageID string, labels []string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM gmail_message_labels WHERE messageId = ?`, messageID); err != nil {
+		tx.Rollback()
+		return err
+	}
+	now := time.Now().UnixMilli()
+	for _, l := range labels {
+		if l == "" {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO gmail_message_labels(messageId, label, updatedAtMs) VALUES(?, ?, ?)`, messageID, l, now); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func applyLabelDelta(db *sql.DB, messageID string, add, remove []string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	for _, l := range add {
+		if l == "" {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO gmail_message_labels(messageId, label, updatedAtMs) VALUES(?, ?, ?)`, messageID, l, now); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	for _, l := range remove {
+		if l == "" {
+			continue
+		}
+		if _, err := tx.Exec(`DELETE FROM gmail_message_labels WHERE messageId = ? AND label = ?`, messageID, l); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func getMessageLabels(db *sql.DB, messageID string) ([]string, error) {
+	rows, err := db.Query(`SELECT label FROM gmail_message_labels WHERE messageId = ? ORDER BY label ASC`, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]string, 0, 8)
+	for rows.Next() {
+		var label string
+		if err := rows.Scan(&label); err != nil {
+			return nil, err
+		}
+		out = append(out, label)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Strings(out)
+	return out, nil
 }
