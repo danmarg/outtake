@@ -286,14 +286,34 @@ func nextListedMessagesBatch(db *sql.DB, lastRespID int64, lastMsgID string, lim
 	}
 	base += ` ORDER BY responseId ASC, id ASC LIMIT ?`
 	args = append(args, limit)
+	return queryListedMessages(db, base, args, limit)
+}
 
-	rows, err := db.Query(base, args...)
+func firstListedMessage(db *sql.DB) (listedMessage, bool, error) {
+	base := `SELECT responseId, id
+		FROM gmail_users_messages_list_response_messages
+		ORDER BY responseId ASC, id ASC LIMIT 1`
+	rows, err := queryListedMessages(db, base, nil, 1)
+	if err != nil {
+		return listedMessage{}, false, err
+	}
+	if len(rows) == 0 {
+		return listedMessage{}, false, nil
+	}
+	return rows[0], true, nil
+}
+
+func queryListedMessages(db *sql.DB, query string, args []interface{}, capHint int) ([]listedMessage, error) {
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	out := make([]listedMessage, 0, limit)
+	if capHint < 1 {
+		capHint = 1
+	}
+	out := make([]listedMessage, 0, capHint)
 	for rows.Next() {
 		var m listedMessage
 		if err := rows.Scan(&m.ResponseID, &m.MessageID); err != nil {

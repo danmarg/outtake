@@ -206,25 +206,21 @@ func clearHistoryState(db *sql.DB) error {
 }
 
 func (g *Gmail) bootstrapHistoryCursor(db *sql.DB) (uint64, error) {
-	var id string
-	err := db.QueryRow(`SELECT id
-		FROM gmail_users_messages_list_response_messages
-		ORDER BY responseId ASC, id ASC
-		LIMIT 1`).Scan(&id)
-	if err == sql.ErrNoRows {
+	msg, ok, err := firstListedMessage(db)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
 		return 0, nil
 	}
+	m, err := g.svc.GetMetadata(msg.MessageID)
 	if err != nil {
-		return 0, err
-	}
-	m, err := g.svc.GetMetadata(id)
-	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("history bootstrap failed: cannot fetch metadata for first listed message id=%s (responseId=%d): %w", msg.MessageID, msg.ResponseID, err)
 	}
 	if m == nil || m.HistoryId == 0 {
-		return 0, nil
+		return 0, fmt.Errorf("history bootstrap failed: first listed message id=%s (responseId=%d) has no usable historyId", msg.MessageID, msg.ResponseID)
 	}
-	log.Printf("history: bootstrapped cursor=%d from message=%s", m.HistoryId, id)
+	log.Printf("history: bootstrapped cursor=%d from first listed message=%s responseId=%d", m.HistoryId, msg.MessageID, msg.ResponseID)
 	return m.HistoryId, nil
 }
 
