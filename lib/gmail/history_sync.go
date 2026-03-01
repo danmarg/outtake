@@ -207,7 +207,10 @@ func clearHistoryState(db *sql.DB) error {
 
 func (g *Gmail) bootstrapHistoryCursor(db *sql.DB) (uint64, error) {
 	var id string
-	err := db.QueryRow(`SELECT id FROM gmail_users_messages_index ORDER BY lastResponseId DESC LIMIT 1`).Scan(&id)
+	err := db.QueryRow(`SELECT id
+		FROM gmail_users_messages_list_response_messages
+		ORDER BY responseId ASC, id ASC
+		LIMIT 1`).Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}

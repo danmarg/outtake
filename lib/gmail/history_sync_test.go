@@ -41,10 +41,23 @@ func TestSyncHistoryWithDBBootstrapsCursor(t *testing.T) {
 	if err := ensureListPagesSchema(db); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO gmail_users_messages_index(id, threadId, lastResponseId, updatedAtMs, rawJson) VALUES('m1','t1',1,1,'{}')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_requests(pageToken, requestedAtMs, nextPageToken, resultSizeEstimate, rawJson) VALUES('',1,'',0,'{}')`); err != nil {
 		t.Fatal(err)
 	}
-	svc.Metadata["m1"] = &gmailapi.Message{Id: "m1", HistoryId: 200}
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_responses(id, requestId, nextPageToken, resultSizeEstimate, receivedAtMs, rawJson) VALUES(1,1,'',0,1,'{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_responses(id, requestId, nextPageToken, resultSizeEstimate, receivedAtMs, rawJson) VALUES(2,1,'',0,1,'{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_response_messages(responseId, id, threadId, rawJson) VALUES(1, 'newer', 't1', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO gmail_users_messages_list_response_messages(responseId, id, threadId, rawJson) VALUES(2, 'older', 't2', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	svc.Metadata["newer"] = &gmailapi.Message{Id: "newer", HistoryId: 200}
+	svc.Metadata["older"] = &gmailapi.Message{Id: "older", HistoryId: 100}
 	svc.History[""] = &gmailapi.ListHistoryResponse{}
 
 	if err := g.SyncHistoryWithDB(db); err != nil {
