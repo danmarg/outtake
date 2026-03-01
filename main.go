@@ -93,6 +93,10 @@ func main() {
 			fmt.Println(err)
 			os.Exit(-1)
 		}
+		if err := g.SyncHistoryWithDB(db); err != nil {
+			fmt.Println(err)
+			os.Exit(-1)
+		}
 		return nil
 	}
 	if err := app.Run(os.Args); err != nil {
