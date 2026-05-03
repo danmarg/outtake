@@ -78,11 +78,14 @@ func main() {
 		}
 		progress := make(chan lib.Progress)
 		go func() {
+			// Given how the label mail counting work we are only able to render the progress
+			// relative to the total number of mail label processed.
+			// So we specify below that the progress is done against labels and not mails.
 			l := time.Time{}
 			for p := range progress {
 				if time.Since(l).Seconds() > progressUpdateFreqSecs {
 					l = time.Now()
-					fmt.Printf("\r%d / %d   %.2f%%  ", p.Current, p.Total, float32(p.Current)/float32(p.Total)*100)
+					fmt.Printf("\r%d / %d labels : %.2f%%  ", p.Current, p.Total, float32(p.Current)/float32(p.Total)*100)
 				}
 			}
 			fmt.Println()

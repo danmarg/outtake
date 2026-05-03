@@ -19,6 +19,7 @@ type gmailService interface {
 	GetRawMessage(id string) (string, error)
 	GetMetadata(id string) (*gmail.Message, error)
 	GetLabels() (*gmail.ListLabelsResponse, error)
+	GetLabel(id string) (*gmail.Label, error)
 	GetHistory(historyIndex uint64, label, page string) (*gmail.ListHistoryResponse, error)
 	GetMessages(q, page string) (*gmail.ListMessagesResponse, error)
 }
@@ -79,6 +80,16 @@ func (s *restGmailService) GetLabels() (*gmail.ListLabelsResponse, error) {
 	var err error
 	err = s.limiter.DoWithBackoff(func() (error, bool) {
 		r, err = s.svc.Labels.List("me").Do()
+		return isRateLimited(err)
+	})
+	return r, err
+}
+
+func (s *restGmailService) GetLabel(id string) (*gmail.Label, error) {
+	var r *gmail.Label
+	var err error
+	err = s.limiter.DoWithBackoff(func() (error, bool) {
+		r, err = s.svc.Labels.Get("me", id).Do()
 		return isRateLimited(err)
 	})
 	return r, err
