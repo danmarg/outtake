@@ -364,6 +364,87 @@ func shardForMsgId(id string) int {
 	return int(shard)
 }
 
+// This function return true if the given label parameter
+// is not an extra (decorating) label.
+func isToBeAccounted(label string) bool {
+	// The following build a set of the real mails labels.
+	// Only these mails types are to take into account when
+	// retrieving a full mailbox without filtering by a given
+	// label.
+	type void struct{}
+	var member void
+	toAccountLabels := make(map[string]void)
+	toAccountLabels["DRAFT"] = member
+	toAccountLabels["INBOX"] = member
+	toAccountLabels["SENT"] = member
+	toAccountLabels["TRASH"] = member
+	_, toBeAccounted := toAccountLabels[label]
+	return toBeAccounted
+}
+
+// This function takes a list of labels and count
+// the number of real labels discarding extra labels.
+func toBeAccountedLabelsCount(g *Gmail, labels []string) int64 {
+	// If a label was specified on the command line
+	// then we are interested only on this given label
+	// and we return 1.
+	if len(g.label) != 0 {
+		return 1
+	}
+	// No label was specified so return the relevant labels
+	// count.
+	count := int64(0)
+	for _, label := range labels {
+		if isToBeAccounted(label) {
+			count += 1
+		}
+	}
+	return count
+}
+
+func getLabelsCount(g *Gmail) (int64, error) {
+	// Get a list of partially filled labels.
+	// In order to get the message count of the resulting
+	// labels another call to UsersLabelsService.Get() must be
+	// done later per label.
+	labelsResponse, err := g.svc.GetLabels()
+	if err != nil {
+		return 0, err
+	}
+
+	totalCount := int64(0)
+	for _, label := range labelsResponse.Labels {
+		// Get the complete data for a specific label
+		fullLabel, err := g.svc.GetLabel(label.Id)
+		if err != nil {
+			return 0, err
+		}
+
+		toAccount := int64(fullLabel.MessagesTotal)
+		// 1) If the current label is TRASH and no label was
+		// specified then it's message count must be
+		// substracted from the totalCount if we are
+		// in 2) below.
+		if label.Name == "TRASH" {
+			toAccount *= -1
+		}
+
+		// No label was specified when calling the NewGmail()
+		// constructor: add to the total account of labels
+		// matching this loop's label excepted if the are in 1)
+		// (like above) then we must withdraw the account.
+		if len(g.labelId) == 0 && isToBeAccounted(label.Name) {
+			totalCount += toAccount
+		} else if len(g.labelId) != 0 && fullLabel.Id == g.labelId {
+			// If we are looking for a specific label then
+			// simply return the message count of this label.
+			return fullLabel.MessagesTotal, nil
+		}
+	}
+
+	return totalCount, nil
+}
+
 func (g *Gmail) incremental(historyId uint64) error {
 	log.Println("Performing incremental sync.")
 	page := ""
@@ -406,7 +487,11 @@ func (g *Gmail) incremental(historyId uint64) error {
 		close(ops)
 	}()
 
-	t := uint(0) // Total count, for progress reporting.
+	t, err := getLabelsCount(g) // Total count, for progress reporting
+	if err != nil {
+		return err
+	}
+
 	go func() {
 		for true {
 			r, err := g.svc.GetHistory(historyId, g.labelId, page)
@@ -419,7 +504,6 @@ func (g *Gmail) incremental(historyId uint64) error {
 				return
 			}
 			page = r.NextPageToken
-			t += uint(len(r.History))
 			for _, m := range r.History {
 				if m.Id > historyId {
 					historyId = m.Id
@@ -474,13 +558,13 @@ func (g *Gmail) incremental(historyId uint64) error {
 			close(h)
 		}
 	}()
-	i := uint(0)
+	i := int64(0)
 	for o := range ops {
 		// Update progress bar.
 		if g.progress != nil {
 			g.progress <- lib.Progress{Current: i, Total: t}
 		}
-		i++
+		i += toBeAccountedLabelsCount(g, o.Labels)
 		if o.Error != nil {
 			return o.Error
 		}
@@ -533,7 +617,12 @@ func (g *Gmail) full() error {
 		close(ops)
 	}()
 	seen := make(map[string]struct{}) // Used to compute deletes.
-	t := uint(0)                      // Total count, for progress reporting.
+
+	t, err := getLabelsCount(g) // Total count, for progress reporting
+	if err != nil {
+		return err
+	}
+
 	go func() {
 		defer close(newMsgs)
 		page := ""
@@ -544,7 +633,7 @@ func (g *Gmail) full() error {
 				return
 			}
 			page = r.NextPageToken
-			t += uint(r.ResultSizeEstimate)
+
 			for _, m := range r.Messages {
 				newMsgs <- m.Id
 				seen[m.Id] = struct{}{}
@@ -555,13 +644,13 @@ func (g *Gmail) full() error {
 		}
 	}()
 	historyId := uint64(0)
-	i := uint(0) // For updating progress bar.
+	i := int64(0) // For updating progress bar.
 	for o := range ops {
 		// Update progress bar.
 		if g.progress != nil {
 			g.progress <- lib.Progress{Current: i, Total: t}
 		}
-		i++
+		i += toBeAccountedLabelsCount(g, o.Labels)
 		if o.Error != nil {
 			return o.Error
 		}
